@@ -56,7 +56,7 @@ def new_tab_html(counts: dict | None = None, since: str = '', lists: str = '', p
     if private:
         body = f"""<div class=private><div class=icon>{_INCOGNITO}</div><h2>This is a private tab</h2>
 <p>Lite forgets the sites you visit, cookies and site data from private tabs once you close the last one.
-Shields choices made here are not saved, and the Claude Fable page check is off.</p>
+Shields choices made here are not saved, and the page check is off.</p>
 <p style="color:#7d838e;font-size:13px">Your internet provider and the sites you visit can still see your activity.</p></div>"""
         title = 'Private tab'
     else:

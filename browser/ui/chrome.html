@@ -236,7 +236,7 @@ function render(s) {
     $('scan').innerHTML = ICONS.spark + '<span></span>';
     $('scan').querySelector('span').textContent = sc.label;
     $('scan').style.color = sc.color;
-    $('scan').title = 'Claude Fable page check' + (sc.reason ? ': ' + sc.reason : '');
+    $('scan').title = 'Page check' + (sc.reason ? ': ' + sc.reason : '');
   }
   const sh = s.shields;
   $('shields').classList.toggle('show', !!sh.show);

@@ -16,7 +16,7 @@ a = Analysis(
         (os.path.join(ROOT, 'packaging', 'lite.ico'), 'packaging'),
     ],
     # pythonnet (clr) and pywebview's WebView2 DLLs are collected by PyInstaller's bundled hooks.
-    hiddenimports=['adblock', 'anthropic'],
+    hiddenimports=['adblock'],
     excludes=['tkinter', 'unittest', 'pydoc', 'test', 'PIL', 'numpy', 'matplotlib', 'scipy', 'pandas', 'IPython', 'jupyter'],
     noarchive=False,
 )

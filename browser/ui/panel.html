@@ -140,7 +140,7 @@ function shields(d) {
   h += row(d.https ? I.check : I.alert, d.https ? 'ok' : 'warn', 'Encrypted connection', d.https ? 'HTTPS' : 'not encrypted');
   h += '</div>';
   const sc = d.scan;
-  h += '<div class="card">' + row(I.spark, 'ai', 'Claude Fable page check', `<span style="color:${sc.color}">${esc(sc.label)}</span>`);
+  h += '<div class="card">' + row(I.spark, 'ai', 'Page check', `<span style="color:${sc.color}">${esc(sc.label)}</span>`);
   if (sc.reason) h += `<div class="reason">${esc(sc.reason)}</div>`;
   h += '</div>';
   if (up && d.hosts && d.hosts.length) {

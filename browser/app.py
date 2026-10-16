@@ -36,7 +36,7 @@ ICON_FILE = os.path.join(ROOT, 'packaging', 'lite.ico')
 CHROME_HEIGHT = 85  # CSS pixels: 38 tab strip + 46 toolbar + 1 border
 STRIP = (22, 24, 29)  # tab strip colour, also used for the Windows title bar
 
-SCAN_TEXT = {  # Claude Fable verdict -> (label, colour); empty label = nothing to show
+SCAN_TEXT = {  # page-check verdict -> (label, colour); empty label = nothing to show
     'off': ('', '#9aa0ab'),
     'local': ('', '#9aa0ab'),
     'scanning': ('Checking', '#f6b74a'),
@@ -335,7 +335,7 @@ class App:
             return {'show': False, 'label': 'Off in private tabs', 'color': '#9aa0ab', 'reason': ''}
         if not self.scanner.enabled:
             return {'show': False, 'label': 'Off', 'color': '#9aa0ab',
-                    'reason': 'Set ANTHROPIC_API_KEY to have Claude Fable check new sites for phishing and scams.'}
+                    'reason': 'The optional page check is not installed.'}
         label, color = SCAN_TEXT.get(tab.scan_state, SCAN_TEXT['unknown'])
         return {'show': bool(label), 'label': label or 'Not checked', 'color': color, 'reason': tab.scan_reason}
 

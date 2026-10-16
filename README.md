@@ -22,8 +22,7 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Safety.** Known malware and scam sites get a warning page before anything
   loads; downloads from known malware links are stopped; program files ask
   "Download anyway?"; every finished download is scanned by the antivirus
-  installed on the PC through AMSI. Optionally, Claude can check new sites for
-  phishing (`ANTHROPIC_API_KEY`).
+  installed on the PC through AMSI.
 - **New tab page** with a clock and running totals. Lite never shows ads or
   sponsored content of its own.
 
@@ -69,7 +68,7 @@ and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 | `browser/privacy.py` | Tracking-link cleaning, GPC, fingerprinting randomization script |
 | `browser/guard.py` | Phishing-style URL checks (punycode, `user@host`, `javascript:`) |
 | `browser/downloads.py` | Download checks and AMSI antivirus scanning |
-| `browser/scanner.py` | Optional Claude page scan |
+| `browser/scanner.py` | Optional page-check hook (disabled placeholder) |
 | `browser/pages.py` | Built-in new tab and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |
 | `packaging/` | Icon generator, PyInstaller spec and build script for the downloadable app |

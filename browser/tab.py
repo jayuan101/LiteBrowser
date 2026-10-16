@@ -6,7 +6,8 @@ cleaning and - the first time a site with scriptlet rules is opened in this tab 
 registering that site's scriptlets. WebView2 fixes a navigation's start-up scripts
 when it begins, so Lite cancels that first navigation, registers, and re-opens it.
 While it loads (WebResourceRequested): every request goes through Shields and the
-rest carry the Global Privacy Control header. After it loads: the Claude Fable check.
+rest carry the Global Privacy Control header. After it loads: the optional
+page check, when one is installed.
 """
 import base64
 import json
@@ -515,7 +516,7 @@ class Tab:
         args.Handled = True
         args.SuppressKeyPress = True
 
-    # ---- Fable scan ------------------------------------------------------
+    # ---- Page check ------------------------------------------------------
     def _start_scan(self):
         token = self.scan_token
         cached = self.app.scanner.cached(_origin(self.url))
@@ -546,5 +547,5 @@ class Tab:
         self.scan_state = result.get('risk', 'unknown')
         self.scan_reason = result.get('reason', '')
         if self.scan_state == 'dangerous' and self.host not in self.app.allowed_hosts:
-            self.show_block_page(self.url, 'Claude Fable: ' + self.scan_reason, 'warn', 'danger')
+            self.show_block_page(self.url, 'Page check: ' + self.scan_reason, 'warn', 'danger')
         self.app.refresh_chrome(self)
