@@ -19,6 +19,19 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   their own key. The Shields panel shows how many scripts were fed randomized
   values; turning Shields off for a site turns this off too.
 - **Private tabs** (Ctrl+Shift+N) keep nothing once closed.
+- **Auto cookie deletion.** Every 30 seconds Lite deletes the cookies of sites
+  you have not starred and that are not open in a tab. Sites you star (Ctrl+D)
+  or have open keep their cookies, so you stay logged in where you want and
+  everything else forgets you.
+- **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
+- **Bookmarks and history** (Ctrl+D to star, Ctrl+H for history, or the
+  library button): one searchable, built-in page manages both.
+- **Reader mode** (the book button or View menu): an article page re-rendered
+  as clean text with no layout, fonts or scripts from the site.
+- **Tab sleeping**: background tabs you have not used for 30 minutes (settable
+  in settings) release their memory and reload when you come back to them.
+- **Update check**: Lite checks GitHub releases at start and quietly shows a
+  banner when a newer version is out. It never auto-installs anything.
 - **Safety.** Known malware and scam sites get a warning page before anything
   loads; downloads from known malware links are stopped; program files ask
   "Download anyway?"; every finished download is scanned by the antivirus
@@ -69,7 +82,9 @@ and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 | `browser/guard.py` | Phishing-style URL checks (punycode, `user@host`, `javascript:`) |
 | `browser/downloads.py` | Download checks and AMSI antivirus scanning |
 | `browser/scanner.py` | Optional page-check hook (disabled placeholder) |
-| `browser/pages.py` | Built-in new tab and warning pages |
+| `browser/store.py` | Bookmarks, history and settings (JSON files in the profile) |
+| `browser/updater.py` | GitHub release update check |
+| `browser/pages.py` | Built-in new tab, reader, find bar, library and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |
 | `packaging/` | Icon generator, PyInstaller spec and build script for the downloadable app |
 | `scratch/` | Tests (`test_*.py`) and `drive.py`, a scripted driver for the real browser |

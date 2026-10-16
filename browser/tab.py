@@ -111,6 +111,10 @@ class Tab:
         self.fp_script: str | None = None  # id of the registered fingerprinting script; None while Shields are down
         self.denied: dict[str, float] = {}  # pages Lite cancelled -> when; their request is answered locally
         self.cosmetic = None  # (token, exceptions) while generic cosmetic rules apply to the page
+        self.sleep_url: str | None = None  # set while this tab shows its "asleep" placeholder
+        self.last_active = time.time()  # background idle time, for tab sleeping
+        self.reader_source: str | None = None  # the real page's URL while reader view is shown
+        self.library_view = ''  # which section of the bookmarks/history page is shown
         self.scheduler = TaskScheduler.FromCurrentSynchronizationContext()
 
         self.webview.CoreWebView2InitializationCompleted += self._on_ready
@@ -167,6 +171,8 @@ class Tab:
     # ---- navigation ------------------------------------------------------
     def navigate(self, url: str):
         self.showing_block_page = False
+        self.sleep_url = None
+        self.reader_source = None
         try:
             self.webview.CoreWebView2.Navigate(url)
         except Exception as e:  # malformed URL etc.
@@ -184,14 +190,74 @@ class Tab:
         self.app.stats.save()
         self.url = ''
         self.showing_block_page = False
+        self.sleep_url = None
+        self.reader_source = None
         self.scan_state = 'local'
         self.title = 'Private tab' if self.private else 'New tab'
         self.favicon = ''
         self._show_builtin(pages.new_tab_html(self.app.stats.counts, self.app.stats.since,
-                                              self.app.filters_text(short=True), self.private))
+                                              self.app.filters_text(short=True), self.private,
+                                              banner=self.app.update_banner))
         self.app.refresh_chrome(self)
         if self is self.app.current:
             self.app.focus_address()
+
+    def show_library(self, view: str = 'history'):
+        """Bookmarks and history in the current tab (a new tab if this page is a real site)."""
+        self.library_view = view
+        self.sleep_url = None
+        self.reader_source = None
+        self.title = 'Bookmarks' if view == 'bookmarks' else 'History'
+        self.favicon = ''
+        self._show_builtin(pages.library_html(self.app.bookmarks.items(), self.app.history.recent(), view))
+        self.app.refresh_chrome(self)
+
+    def show_reader(self, article: dict):
+        self.reader_source = self.url
+        self.sleep_url = None
+        self.title = article.get('title') or self.title
+        self._show_builtin(pages.reader_html(article))
+        self.app.refresh_chrome(self)
+
+    def toggle_reader(self):
+        if self.reader_source:  # already reading: go back to the real page
+            url, self.reader_source = self.reader_source, None
+            self.navigate(url)
+        elif self.host and self.url.startswith(('http://', 'https://')):
+            self._collect_reader()
+
+    def _collect_reader(self):
+        self.webview.ExecuteScriptAsync(pages.READER_JS).ContinueWith(
+            Action[Task[String]](lambda task: self._reader_collected(task)), self.scheduler)
+
+    def _reader_collected(self, task):
+        if task.IsFaulted or self.reader_source or self.builtin:
+            return  # navigated away meanwhile, or reader already shown
+        try:
+            article = json.loads(json.loads(task.Result))
+        except (ValueError, TypeError):
+            return
+        if isinstance(article, dict) and article.get('blocks'):
+            self.show_reader(article)
+
+    # ---- tab sleeping ------------------------------------------------------
+    def sleepable(self) -> bool:
+        return bool(self.sleep_url is None and not self.builtin and not self.private and not self.loading
+                    and not self.audible and self.host and self.webview.CoreWebView2 is not None)
+
+    def sleep(self):
+        """Replace the page with a placeholder, freeing the site's renderer."""
+        if not self.sleepable():
+            return
+        self.sleep_url = self.url
+        self._show_builtin(pages.sleeping_html(self.url))
+        self.app.refresh_chrome(self)
+
+    def wake(self):
+        if not self.sleep_url:
+            return
+        url, self.sleep_url = self.sleep_url, None
+        self.navigate(url)
 
     def show_block_page(self, url: str, reason: str, level: str, kind: str | None = None):
         self.showing_block_page = True
@@ -297,6 +363,8 @@ class Tab:
             self.app.refresh_chrome(self)
             return
         self.app.https_attempted.pop(self.host, None)
+        if not self.private and self.host and not self.app.blocker.is_ad_page(self.url):
+            self.app.history.record(self.url, self.title)
         if self.app.scanner.enabled and not self.private and self.host and self.host not in guard.LOCAL_HOSTS:
             self._start_scan()
         self.app.refresh_chrome(self)
@@ -310,6 +378,9 @@ class Tab:
 
     def _on_title_changed(self, sender, args):
         self.title = str(sender.DocumentTitle or '') or self.url or self.title
+        if not self.private and not self.builtin and self.host:
+            self.app.history.retitle(self.url, self.title)
+            self.app.bookmarks.retitle(self.url, self.title)
         self.app.refresh_chrome(self)
 
     def _on_favicon_changed(self, sender, args):
@@ -473,6 +544,24 @@ class Tab:
             self.app.allowed_once.add(url)
             self.app.allowed_hosts.add(_host(url))
             self.navigate(url)
+        elif cmd == 'wake':
+            self.wake()
+        elif cmd == 'leave' and self.reader_source:
+            url, self.reader_source = self.reader_source, None
+            self.navigate(url)
+        elif cmd == 'library':
+            self.show_library(str(msg.get('v', 'history')))
+        elif cmd == 'unstar':
+            self.app.bookmarks.remove(str(msg.get('url', '')))
+            self.show_library('bookmarks')
+        elif cmd == 'delhist':
+            self.app.history.delete(str(msg.get('url', '')))
+            self.show_library('history')
+        elif cmd == 'clearhist':
+            self.app.history.clear()
+            self.show_library('history')
+        elif cmd == 'update' and self.app.update_banner:
+            self.app.new_tab(self.app.update_banner['url'])
 
     def _on_cosmetic_message(self, msg: dict):
         """The page's cosmetic script asks for its hide rules, then for rules matching new class names/ids."""
@@ -511,10 +600,22 @@ class Tab:
             app.select_nth(key - ord('0'))
         elif ctrl and key == ord('J'):
             app.show_downloads()
+        elif ctrl and key == ord('F'):
+            self.open_find()
+        elif ctrl and key == ord('D'):
+            app.toggle_bookmark(self)
+        elif ctrl and key == ord('H'):
+            app.show_library()
         else:
             return
         args.Handled = True
         args.SuppressKeyPress = True
+
+    # ---- find in page ------------------------------------------------------
+    def open_find(self):
+        if self.webview.CoreWebView2 is None:
+            return
+        self.webview.ExecuteScriptAsync(pages.FIND_JS)
 
     # ---- Page check ------------------------------------------------------
     def _start_scan(self):

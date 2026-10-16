@@ -107,6 +107,10 @@ const I = {
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   incognito: '<svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+  book: '<svg viewBox="0 0 24 24"><path d="M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H20v16.5H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M8 7.5h8M8 11h6"/></svg>',
+  cookie: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 3 3 0 0 1-4.2-2.7A3 3 0 0 1 13 5.5 3 3 0 0 1 12 3z"/><circle cx="9" cy="13" r=".9"/><circle cx="14" cy="16" r=".9"/><circle cx="8" cy="8.5" r=".9"/></svg>',
   print: '<svg viewBox="0 0 24 24"><path d="M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a1 1 0 0 1-1 1h-2"/><path d="M7 14h10v6H7z"/></svg>',
   code: '<svg viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
@@ -162,13 +166,19 @@ function menu(d) {
   const items = [
     ['newtab', I.plus, 'New tab', 'Ctrl+T'],
     ['private', I.incognito, 'New private tab', 'Ctrl+Shift+N'],
+    'sep',
+    ['bookmarks', I.star, 'Bookmarks', ''],
+    ['history', I.clock, 'History', 'Ctrl+H'],
+    d.reader ? ['reader', I.book, 'Reader view', ''] : null,
+    'sep',
+    ['cookies', I.cookie, 'Auto-delete cookies', d.cookies ? 'On' : 'Off'],
     ['downloads', I.down, 'Downloads', 'Ctrl+J'],
     'sep',
     ['print', I.print, 'Print...', 'Ctrl+P'],
     ['devtools', I.code, 'Developer tools', 'F12'],
     'sep',
     d.confirm ? ['clear-yes', I.trash, 'Click again to clear everything', ''] : ['clear', I.trash, 'Clear browsing data...', ''],
-  ];
+  ].filter(Boolean);
   root(items.map((it) => it === 'sep' ? '<div class="sep"></div>'
     : `<div class="item ${it[0] === 'clear-yes' ? 'confirm' : ''}" data-id="${it[0]}">${it[1]}<span>${it[2]}</span><span class="k">${it[3]}</span></div>`).join('')
     + (d.confirm ? '<div class="note" style="padding:4px 12px 8px">Deletes cookies, site data, cache and history for normal tabs. You will be signed out of websites.</div>' : ''), 'menu');

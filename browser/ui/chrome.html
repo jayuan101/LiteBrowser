@@ -64,6 +64,8 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .btn:hover { background: var(--hover); }
 .btn:active { background: var(--press); }
 .btn.off { opacity: .3; pointer-events: none; }
+.btn.on { color: var(--accent2); }
+#star.on svg { fill: var(--accent2); stroke: var(--accent2); }
 #field { flex: 1; min-width: 0; height: 34px; margin: 0 6px; display: flex; align-items: center; gap: 6px;
   padding: 0 4px 0 12px; background: var(--field); border: 1px solid transparent; border-radius: 17px;
   transition: background .12s, border-color .12s, box-shadow .12s; }
@@ -139,6 +141,8 @@ body.private #private-badge { display: flex; }
       <span class="count" id="count">0</span>
     </div>
   </div>
+  <div class="btn" id="reader" title="Reader view"><svg viewBox="0 0 24 24"><path d="M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H20v16.5H6.5A2.5 2.5 0 0 0 4 22z"/><path d="M8 7.5h8M8 11h6"/></svg></div>
+  <div class="btn" id="star" title="Bookmark this page (Ctrl+D)"><svg viewBox="0 0 24 24" id="star-icon"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z"/></svg></div>
   <div class="btn" id="downloads" title="Downloads (Ctrl+J)"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="dot"></span></div>
   <div class="btn" id="menu" title="Menu"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></div>
 </div>
@@ -250,6 +254,14 @@ function render(s) {
   $('downloads').className = 'btn' + (dl.show ? ' show ' + dl.state : '');
   $('downloads').title = ({active: 'Downloading and scanning', clean: 'Downloads - last file scanned, no threats found',
     threat: 'Downloads - a threat was found'}[dl.state] || 'Downloads') + ' (Ctrl+J)';
+
+  const star = $('star');
+  star.style.display = (s.starred || (s.reader && !s.reading)) ? 'grid' : 'none';
+  star.classList.toggle('on', !!s.starred);
+  star.title = s.starred ? 'Remove bookmark (Ctrl+D)' : 'Bookmark this page (Ctrl+D)';
+  $('reader').style.display = s.reader ? 'grid' : 'none';
+  $('reader').classList.toggle('on', !!s.reading);
+  $('reader').title = s.reading ? 'Leave reader view' : 'Reader view';
 }
 
 function focusAddress() {
@@ -279,6 +291,8 @@ $('shields').addEventListener('click', () => post({ui: 'shields', rect: rectOf('
 $('scan').addEventListener('click', () => post({ui: 'shields', rect: rectOf('shields')}));
 $('menu').addEventListener('click', () => post({ui: 'menu', rect: rectOf('menu')}));
 $('downloads').addEventListener('click', () => post({ui: 'downloads', rect: rectOf('downloads')}));
+$('reader').addEventListener('click', () => post({ui: 'reader'}));
+$('star').addEventListener('click', () => post({ui: 'star'}));
 $('field').addEventListener('mousedown', (e) => { if (e.target === $('field') || e.target === $('site')) { e.preventDefault(); focusAddress(); } });
 
 document.addEventListener('keydown', (e) => {
@@ -292,6 +306,9 @@ document.addEventListener('keydown', (e) => {
     else if (k >= '1' && k <= '9') msg = {ui: 'nth', n: Number(k)};
     else if (k === 'r') msg = {ui: 'reload'};
     else if (k === 'j') msg = {ui: 'downloads'};
+    else if (k === 'f') msg = {ui: 'find'};
+    else if (k === 'd') msg = {ui: 'star'};
+    else if (k === 'h') msg = {ui: 'library'};
     else if (k === 'l') { focusAddress(); e.preventDefault(); return; }
   } else if (e.altKey && !e.ctrlKey) {
     if (k === 'arrowleft') msg = {ui: 'back'};

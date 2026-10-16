@@ -15,19 +15,21 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import filters, guard, privacy
+from . import filters, guard, privacy, updater
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner
 from .popup import Popup
 from .scanner import FableScanner
 from .stats import Stats
+from .store import Bookmarks, History, Settings, host_keeps_cookie
 from .tab import Tab, to_url
 from .webview2 import (
     Action, ApartmentState, CoreWebView2CreationProperties, CoreWebView2PrintDialogKind, Drawing, Drawing2D,
-    System, Thread, ThreadStart, WebView2, WinForms,
+    System, Task, TaskScheduler, Thread, ThreadStart, WebView2, WinForms,
 )
 
 APP_NAME = 'Lite'
+APP_VERSION = '0.2.0'
 # Project folder, or the bundle folder when packaged with PyInstaller (packaging/lite.spec).
 ROOT = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 DATA_DIR = os.path.join(os.environ.get('LOCALAPPDATA', ROOT), 'LiteBrowser')
@@ -117,7 +119,11 @@ class App:
         self.blocker = Blocker(os.path.join(ROOT, 'blocklist.txt'), os.path.join(self.data_dir, 'shields.json'))
         self.scanner = FableScanner(self.config, os.path.join(self.data_dir, 'scan_cache.json'))
         self.stats = Stats(os.path.join(self.data_dir, 'stats.json'))
+        self.bookmarks = Bookmarks(os.path.join(self.data_dir, 'bookmarks.json'))
+        self.history = History(os.path.join(self.data_dir, 'history.json'))
+        self.settings = Settings(os.path.join(self.data_dir, 'settings.json'))
         self.antivirus = AntivirusScanner()
+        self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
         self.https_only = self.config.get('https_only', True)
         # Fingerprinting keys: new every start, and private tabs use their own so a site cannot
         # match a private visit to a normal one.
@@ -138,9 +144,16 @@ class App:
         self._panel_due = 0.0
 
         self._build_form()
+        self.scheduler = TaskScheduler.FromCurrentSynchronizationContext()  # cookie sweep continuations
         for url in start_urls or [None]:
             self.new_tab(url)
         threading.Thread(target=self._load_filters, daemon=True).start()
+        threading.Thread(target=self._check_updates, daemon=True).start()
+
+        self.slow_timer = WinForms.Timer()
+        self.slow_timer.Interval = 30_000
+        self.slow_timer.Tick += lambda s, e: (self._sleep_check(), self._cookie_sweep())
+        self.slow_timer.Start()
 
     # ---- window ----------------------------------------------------------
     def _build_form(self):
@@ -224,7 +237,11 @@ class App:
 
     def _on_closed(self, sender, args):
         self.ui_timer.Stop()
+        self.slow_timer.Stop()
+        self._cookie_sweep()  # best effort: a final wipe of cookies you would not keep
         self.stats.save()
+        self.bookmarks.save()
+        self.history.save()
         for t in self.tabs:
             t.dispose()
         self.popup.form.Dispose()
@@ -270,6 +287,15 @@ class App:
             self.show_menu(self._anchor(msg.get('rect')))
         elif ui == 'downloads':
             self.show_downloads(self._anchor(msg.get('rect')))
+        elif ui == 'find':
+            tab.open_find()
+        elif ui == 'reader':
+            tab.toggle_reader()
+            tab.webview.Focus()
+        elif ui == 'star':
+            self.toggle_bookmark(tab)
+        elif ui == 'library':
+            self.show_library()
 
     def _anchor(self, rect: dict | None = None):
         """Screen rectangle (device pixels) of a toolbar button, from its CSS-pixel rect in chrome.html."""
@@ -304,6 +330,9 @@ class App:
             'canBack': bool(tab and tab.webview.CanGoBack),
             'canForward': bool(tab and tab.webview.CanGoForward),
             'loading': bool(tab and tab.loading),
+            'starred': bool(tab and on_site and self.bookmarks.is_starred(tab.url)),
+            'reader': bool(tab and (on_site or tab.reader_source)),
+            'reading': bool(tab and tab.reader_source),
             'shields': {'show': on_site, 'up': on_site and self.blocker.shields_up(tab.host),
                         'count': tab.blocked if tab else 0},
             'scan': self._scan_info(tab) if on_site else {'show': False},
@@ -415,7 +444,10 @@ class App:
     # ---- menu ------------------------------------------------------------
     def show_menu(self, anchor=None):
         if not self._toggle_popup('menu'):
-            self.popup.show('menu', {}, anchor or self._anchor())
+            tab = self.current
+            data = {'cookies': bool(self.settings.get('auto_delete_cookies', True)),
+                    'reader': bool(tab and (tab.reader_source or (tab.host and not tab.builtin)))}
+            self.popup.show('menu', data, anchor or self._anchor())
 
     def _menu(self, item: str):
         tab = self.current
@@ -429,6 +461,16 @@ class App:
             self.new_tab(None, private=True)
         elif item == 'downloads':
             self.show_downloads(force=True)
+        elif item == 'bookmarks':
+            self.show_library('bookmarks')
+        elif item == 'history':
+            self.show_library('history')
+        elif item == 'reader' and tab:
+            tab.toggle_reader()
+        elif item == 'cookies':
+            self.settings.set('auto_delete_cookies',
+                              not self.settings.get('auto_delete_cookies', True))
+            self._cookie_sweep()
         elif item == 'print' and tab:
             tab.webview.CoreWebView2.ShowPrintUI(CoreWebView2PrintDialogKind.Browser)
         elif item == 'devtools' and tab:
@@ -440,6 +482,7 @@ class App:
         """Cookies, site data, cache and history of normal tabs, and Lite's own memory of visited sites."""
         self.chrome.CoreWebView2.Profile.ClearBrowsingDataAsync()
         self.scanner.clear()
+        self.history.clear()
         self.allowed_once.clear()
         self.allowed_hosts.clear()
         self.http_fallback.clear()
@@ -591,6 +634,76 @@ class App:
         if force or not self._toggle_popup('downloads'):
             self.popup.show('downloads', self._downloads_data(), anchor or self._anchor())
 
+    # ---- bookmarks, library, updates, sleeping tabs ----------------------
+    def toggle_bookmark(self, tab: Tab | None):
+        if tab is None or not tab.host or tab.builtin:
+            return
+        self.bookmarks.toggle(tab.url, tab.title)
+        self.refresh_chrome(tab)
+
+    def show_library(self, view: str = 'history'):
+        tab = self.current
+        if tab is None:
+            return
+        if not tab.builtin:  # keep the page you were on: the library opens in its own tab
+            self.new_tab(None)
+            tab = self.current
+        tab.show_library(view)
+        tab.webview.Focus()
+
+    def _check_updates(self):
+        """Worker thread: once a day, does this release exist on GitHub that is newer?"""
+        update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION)
+        if update:
+            self.later(lambda: self._use_update_banner(update))
+
+    def _use_update_banner(self, banner: dict):
+        self.update_banner = banner
+        for t in list(self.tabs):
+            if t.builtin and not t.url and not t.pending_url:
+                t.show_new_tab()  # open new tab pages pick up the banner
+
+    def _sleep_check(self):
+        if not self.settings.get('tab_sleep', True):
+            return
+        limit = int(self.settings.get('sleep_after_minutes', 30)) * 60
+        now = time.time()
+        for t in self.tabs:
+            if t is not self.active and t.sleepable() and now - t.last_active > limit:
+                t.sleep()
+
+    def _cookie_sweep(self):
+        """Delete the cookies of sites you have not starred and are not open (auto-delete mode)."""
+        if not self.settings.get('auto_delete_cookies', True):
+            return
+        core = self.chrome.CoreWebView2
+        if core is None:
+            return
+        open_hosts = {t.host for t in self.tabs if t.host and not t.private and not t.builtin}
+        try:
+            task = core.CookieManager.GetCookiesAsync(None)
+        except Exception:
+            return
+
+        def worker():
+            for _ in range(100):  # the wait must happen off the UI thread; the cookies themselves are
+                if task.IsCompleted:  # COM-STA bound and may only be touched on it, so hand back the task
+                    break
+                time.sleep(0.1)
+            if task.IsCompleted and not task.IsFaulted:
+                self.later(lambda: self._delete_cookies(task.Result, open_hosts))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _delete_cookies(self, cookies, open_hosts: set[str]):
+        try:
+            for c in cookies:
+                uri = f'https://{str(c.Domain).lstrip(".").lower()}{c.Path}'
+                keep = host_keeps_cookie(str(c.Domain), self.bookmarks.hosts(), open_hosts)
+                if not keep:
+                    self.chrome.CoreWebView2.CookieManager.DeleteCookies(str(c.Name), uri)
+        except Exception:
+            pass  # best effort: a failed sweep just leaves the cookies for the next one
+
     # ---- tabs ------------------------------------------------------------
     @property
     def current(self) -> Tab | None:
@@ -608,10 +721,14 @@ class App:
         if tab is None or tab not in self.tabs:
             return
         previous, self.active = self.active, tab
+        tab.last_active = time.time()
         tab.webview.Visible = True
         tab.webview.BringToFront()
         if previous is not None and previous is not tab:
+            previous.last_active = min(previous.last_active, time.time())  # sleeping counts from when you left
             previous.webview.Visible = False
+        if tab.sleep_url:
+            tab.wake()  # a sleeping tab reloads when you come back to it
         self.popup.hide()
         self.refresh_chrome(tab)
         if tab.builtin and not tab.url and not tab.pending_url:

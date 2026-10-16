@@ -54,10 +54,33 @@ scripts_ok('new tab page', pages.new_tab_html(counts, '2026-10-15', '9 filter li
 scripts_ok('private new tab page', pages.new_tab_html(counts, '2026-10-15', '', private=True))
 scripts_ok('warning page', pages.blocked_html('https://evil.example/"<x>', 'Reason with "quotes" & <tags>', 'warn', 'danger'))
 scripts_ok('block page', pages.blocked_html('javascript:alert(1)', 'scripts', 'block'))
+scripts_ok('library page', pages.library_html([{'url': 'https://a.example/', 'title': 'A'}],
+                                              [{'url': 'https://b.example/', 'title': 'B', 'ts': 0}]))
+scripts_ok('empty library page', pages.library_html([], []))
+scripts_ok('reader page', pages.reader_html({'title': 'T" & t', 'url': 'https://x.example/a',
+                                             'blocks': [{'t': 'p', 'x': 'Hi <there>'}, {'t': 'li', 'x': 'one'}]}))
+scripts_ok('sleeping page', pages.sleeping_html('https://x.example/'))
+
+def js_ok(name, js):
+    if not NODE:
+        return
+    path = os.path.join(tempfile.mkdtemp(prefix='lite-ui-'), 'injected.js')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(js)
+    r = subprocess.run([NODE, '--check', path], capture_output=True, text=True)
+    check(f'JavaScript parses: {name}', r.returncode == 0, r.stderr.strip()[:400])
+
+
+js_ok('find bar script', pages.FIND_JS)
+js_ok('reader collector script', pages.READER_JS)
+js_ok('block page go()', 'function go(cmd){window.chrome.webview.postMessage({cmd:cmd})}')
 
 html = pages.new_tab_html(counts, '2026-10-15', 'lists')
 check('new tab page shows the totals', all(s in html for s in ('12,345', '>87<', '>3<', 'Oct 15, 2026')), html[:200])
 check('new tab page promises no sponsored content', 'never shows ads, sponsored' in html)
+banner = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'})
+check('update banner renders and links', 'Lite 0.3.0' in banner and "cmd:'update'" in banner)
+check('no banner by default', 'class=banner' not in html)
 warn = pages.blocked_html('https://evil.example/"<x>', 'r', 'warn')
 check('warning page escapes the URL', '"<x>' not in warn.split('<script>')[0] and 'Continue anyway' in warn)
 check('hard block has no way through', 'Continue anyway' not in pages.blocked_html('javascript:x', 'r', 'block'))

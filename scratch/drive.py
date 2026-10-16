@@ -26,6 +26,7 @@ independently of the app's counter so the two can be cross-checked.
 import argparse
 import base64
 import ctypes
+import inspect
 import json
 import os
 import subprocess
@@ -200,6 +201,10 @@ def drive(app, opts):
         elif action == 'panel':
             {'shields': app.show_shields, 'menu': app.show_menu,
              'downloads': lambda: app.show_downloads(force=True)}[arg]()
+        elif action == 'app':  # call an App method, or one on the current tab (open_find...); tab passed if required
+            fn = getattr(app, arg, None) or getattr(tab, arg)
+            required = [p for p in inspect.signature(fn).parameters.values() if p.default is inspect.Parameter.empty]
+            fn(tab) if required else fn()
         elif action == 'hide':
             app.popup.hide()
         elif action == 'shot':
