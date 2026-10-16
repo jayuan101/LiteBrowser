@@ -1,0 +1,317 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lite</title>
+<!-- The browser frame: tab strip + toolbar. Runs in its own WebView2, separate from web pages,
+     and only talks to Lite through chrome.webview messages (see App._on_ui_message). -->
+<style>
+:root {
+  --strip: #16181d; --bar: #24272e; --field: #17191e; --field-hover: #1b1d23; --field-focus: #111317;
+  --text: #eceef2; --muted: #9aa0ab; --dim: #6c727d; --hover: rgba(255,255,255,.07); --press: rgba(255,255,255,.13);
+  --accent: #fb542b; --accent2: #ff8f3f; --private: #a07bff; --ok: #3fd18f; --warn: #f6b74a; --bad: #ff6b6b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--strip); color: var(--text);
+  font: 13px/1.2 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; user-select: none; }
+svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round;
+  stroke-linejoin: round; flex: none; }
+
+/* ---- tab strip ---- */
+#strip { height: 38px; display: flex; align-items: flex-end; padding: 0 10px 0 8px; }
+#tabs { display: flex; min-width: 0; height: 32px; gap: 1px; }
+.tab { position: relative; flex: 0 1 230px; width: 230px; min-width: 52px; height: 32px; display: flex; align-items: center;
+  gap: 8px; padding: 0 6px 0 11px; border-radius: 10px 10px 0 0; color: var(--muted); transition: background .12s; }
+.tab:hover { background: rgba(255,255,255,.045); color: var(--text); }
+.tab.active { background: var(--bar); color: var(--text); }
+.tab.active::before, .tab.active::after { content: ""; position: absolute; bottom: 0; width: 10px; height: 10px;
+  background: radial-gradient(circle at var(--c) 0, transparent 9.5px, var(--bar) 10px); }
+.tab.active::before { left: -10px; --c: 0; }
+.tab.active::after { right: -10px; --c: 10px; }
+.tab + .tab:not(.active):not(:hover)::before { content: ""; position: absolute; left: -1px; top: 9px; height: 15px;
+  width: 1px; background: rgba(255,255,255,.08); }
+.tab.active + .tab::before, .tab:hover + .tab::before { display: none; }
+.tab .icon { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
+.tab .icon img { width: 16px; height: 16px; border-radius: 3px; }
+.tab .title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12.5px;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent); }
+.tab .audio { display: none; width: 20px; height: 20px; border-radius: 6px; place-items: center; color: var(--muted); }
+.tab.audible .audio, .tab.muted .audio { display: grid; }
+.tab .audio:hover { background: var(--press); color: var(--text); }
+.tab .audio svg { width: 14px; height: 14px; }
+.tab .close { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; opacity: 0;
+  color: var(--muted); flex: none; }
+.tab:hover .close, .tab.active .close { opacity: 1; }
+.tab .close:hover { background: var(--press); color: var(--text); }
+.tab .close svg { width: 12px; height: 12px; stroke-width: 2.2; }
+.tab.narrow .close { display: none; }
+.tab.narrow.active .close { display: grid; }
+.tab.private .icon { color: var(--private); }
+.tab.private.active { box-shadow: inset 0 2px 0 var(--private); }
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.14);
+  border-top-color: var(--accent2); animation: spin .75s linear infinite; }
+.tab.private .spinner { border-top-color: var(--private); }
+@keyframes spin { to { transform: rotate(360deg); } }
+#newtab { width: 30px; height: 30px; margin: 0 0 2px 6px; border-radius: 9px; display: grid; place-items: center;
+  color: var(--muted); flex: none; }
+#newtab:hover { background: var(--hover); color: var(--text); }
+#drag { flex: 1; height: 100%; }
+
+/* ---- toolbar ---- */
+#bar { height: 46px; background: var(--bar); display: flex; align-items: center; gap: 2px; padding: 0 8px;
+  border-bottom: 1px solid #0c0d10; }
+.btn { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--text); flex: none; }
+.btn:hover { background: var(--hover); }
+.btn:active { background: var(--press); }
+.btn.off { opacity: .3; pointer-events: none; }
+#field { flex: 1; min-width: 0; height: 34px; margin: 0 6px; display: flex; align-items: center; gap: 6px;
+  padding: 0 4px 0 12px; background: var(--field); border: 1px solid transparent; border-radius: 17px;
+  transition: background .12s, border-color .12s, box-shadow .12s; }
+#field:hover { background: var(--field-hover); }
+#field.focus { background: var(--field-focus); border-color: rgba(251,84,43,.7); box-shadow: 0 0 0 3px rgba(251,84,43,.16); }
+body.private #field.focus { border-color: rgba(160,123,255,.75); box-shadow: 0 0 0 3px rgba(160,123,255,.18); }
+#site { width: 18px; display: grid; place-items: center; color: var(--muted); flex: none; }
+#site.insecure { color: var(--warn); }
+#site svg { width: 15px; height: 15px; }
+#addr { position: relative; flex: 1; min-width: 0; height: 100%; }
+#address { position: absolute; inset: 0; width: 100%; padding: 0; background: transparent; border: 0; outline: 0;
+  color: var(--text); font: inherit; font-size: 14px; caret-color: var(--accent2); user-select: text; }
+#address::placeholder { color: var(--dim); }
+#address::selection { background: rgba(251,84,43,.45); }
+#pretty { position: absolute; inset: 0; display: flex; align-items: center; pointer-events: none; font-size: 14px;
+  white-space: nowrap; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+#pretty .host { color: var(--text); }
+#pretty .path { color: var(--dim); }
+#field:not(.focus) #address.has-pretty { color: transparent; }
+#field.focus #pretty { display: none; }
+.pill { height: 26px; display: none; align-items: center; gap: 5px; padding: 0 9px 0 7px; border-radius: 13px;
+  font-size: 12px; font-weight: 600; flex: none; white-space: nowrap; }
+.pill.show { display: flex; }
+.pill svg { width: 14px; height: 14px; }
+#scan { color: var(--muted); background: rgba(255,255,255,.05); }
+#scan:hover { background: var(--hover); }
+#shields { color: var(--accent2); gap: 6px; padding: 0 9px 0 6px; }
+#shields:hover { background: var(--hover); }
+#shields .count { min-width: 16px; text-align: center; color: #ffd8c9; font-variant-numeric: tabular-nums; }
+#shields.down { color: var(--dim); }
+#shields.down .count { color: var(--dim); }
+#shields .shield { width: 20px; height: 20px; }
+#downloads { display: none; position: relative; }
+#downloads.show { display: grid; }
+#downloads .dot { position: absolute; right: 5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; display: none;
+  border: 2px solid var(--bar); box-sizing: content-box; }
+#downloads.active .dot { display: block; background: var(--accent2); animation: pulse .9s ease-in-out infinite alternate; }
+#downloads.clean .dot { display: block; background: var(--ok); }
+#downloads.threat .dot { display: block; background: var(--bad); }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+#private-badge { display: none; height: 26px; align-items: center; gap: 6px; padding: 0 10px; margin-right: 2px;
+  border-radius: 13px; color: #d9cbff; background: rgba(160,123,255,.16); font-size: 12px; font-weight: 600; }
+body.private #private-badge { display: flex; }
+#private-badge svg { width: 15px; height: 15px; }
+</style>
+</head>
+<body>
+<div id="strip">
+  <div id="tabs"></div>
+  <div id="newtab" title="New tab (Ctrl+T)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+  <div id="drag"></div>
+</div>
+<div id="bar">
+  <div class="btn" id="back" title="Back (Alt+Left)"><svg viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></svg></div>
+  <div class="btn" id="forward" title="Forward (Alt+Right)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+  <div class="btn" id="reload" title="Reload (Ctrl+R)">
+    <svg viewBox="0 0 24 24" id="reload-icon"><path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5"/><path d="M20 3.5v5h-5"/></svg>
+    <svg viewBox="0 0 24 24" id="stop-icon" style="display:none"><path d="M17 7L7 17M7 7l10 10"/></svg>
+  </div>
+  <div id="field">
+    <div id="site"></div>
+    <div id="addr">
+      <input id="address" spellcheck="false" autocomplete="off" placeholder="Search with Brave or type a web address">
+      <div id="pretty"></div>
+    </div>
+    <div class="pill" id="private-badge"><svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>Private</div>
+    <div class="pill" id="scan"></div>
+    <div class="pill" id="shields" title="Lite Shields">
+      <svg viewBox="0 0 24 24" class="shield"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ff8f3f"/><stop offset="1" stop-color="#fb542b"/></linearGradient></defs>
+        <path id="shield-body" d="M12 2.8l7.5 2.9v5.6c0 4.9-3.3 8.6-7.5 9.9-4.2-1.3-7.5-5-7.5-9.9V5.7z" fill="url(#g)" stroke="none"/>
+        <path id="shield-mark" d="M8.6 12.2l2.4 2.4 4.6-4.9" stroke="#fff" stroke-width="2.1"/></svg>
+      <span class="count" id="count">0</span>
+    </div>
+  </div>
+  <div class="btn" id="downloads" title="Downloads (Ctrl+J)"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="dot"></span></div>
+  <div class="btn" id="menu" title="Menu"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (msg) => window.chrome.webview.postMessage(msg);
+const ICONS = {
+  globe: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
+  lite: '<svg viewBox="0 0 24 24"><path d="M12 2.8l7.5 2.9v5.6c0 4.9-3.3 8.6-7.5 9.9-4.2-1.3-7.5-5-7.5-9.9V5.7z" fill="#fb542b" stroke="none"/></svg>',
+  incognito: '<svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>',
+  close: '<svg viewBox="0 0 24 24"><path d="M17 7L7 17M7 7l10 10"/></svg>',
+  speaker: '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
+  muted: '<svg viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  warn: '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>',
+  search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
+  page: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>',
+  spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z"/><path d="M18.5 15.5l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8z"/></svg>',
+};
+let state = null, editing = false, typed = false;
+const tabEls = new Map();
+
+function tabEl(t) {
+  let el = tabEls.get(t.id);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'tab';
+    el.innerHTML = '<div class="icon"></div><div class="title"></div><div class="audio"></div><div class="close" title="Close tab (Ctrl+W)">' + ICONS.close + '</div>';
+    el.addEventListener('mousedown', (e) => { if (e.button === 0 && !e.target.closest('.close, .audio')) post({ui: 'select', id: t.id}); });
+    el.addEventListener('auxclick', (e) => { if (e.button === 1) post({ui: 'close', id: t.id}); });
+    el.querySelector('.close').addEventListener('click', () => post({ui: 'close', id: t.id}));
+    el.querySelector('.audio').addEventListener('click', () => post({ui: 'mute', id: t.id}));
+    tabEls.set(t.id, el);
+  }
+  const key = [t.loading, t.favicon, t.private].join('|');
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.querySelector('.icon').innerHTML = t.loading ? '<div class="spinner"></div>'
+      : t.favicon ? '<img src="' + t.favicon + '">' : (t.private ? ICONS.incognito : (t.builtin ? ICONS.lite : ICONS.globe));
+  }
+  el.querySelector('.title').textContent = t.title;
+  el.title = t.title;
+  el.querySelector('.audio').innerHTML = t.muted ? ICONS.muted : ICONS.speaker;
+  el.querySelector('.audio').title = t.muted ? 'Unmute tab' : 'Mute tab';
+  el.classList.toggle('active', t.id === state.active);
+  el.classList.toggle('private', !!t.private);
+  el.classList.toggle('audible', !!t.audible);
+  el.classList.toggle('muted', !!t.muted);
+  return el;
+}
+
+function prettyUrl(url) {
+  const m = /^(https?):\/\/([^/?#]+)(.*)$/.exec(url || '');
+  if (!m) return null;
+  const host = m[2].replace(/^www\./, '');
+  const path = m[3] === '/' ? '' : m[3];
+  return {host, path, secure: m[1] === 'https'};
+}
+
+function render(s) {
+  state = s;
+  document.body.classList.toggle('private', !!s.private);
+  const strip = $('tabs');
+  const wanted = s.tabs.map(tabEl);
+  wanted.forEach((el, i) => { if (strip.children[i] !== el) strip.insertBefore(el, strip.children[i] || null); });
+  for (const [id, el] of tabEls) if (!s.tabs.some((t) => t.id === id)) { el.remove(); tabEls.delete(id); }
+  const narrow = s.tabs.length > 0 && strip.clientWidth / s.tabs.length < 96;
+  for (const el of wanted) el.classList.toggle('narrow', narrow);
+
+  $('back').classList.toggle('off', !s.canBack);
+  $('forward').classList.toggle('off', !s.canForward);
+  $('reload-icon').style.display = s.loading ? 'none' : '';
+  $('stop-icon').style.display = s.loading ? '' : 'none';
+  $('reload').title = s.loading ? 'Stop (Esc)' : 'Reload (Ctrl+R)';
+
+  const p = prettyUrl(s.url);
+  if (!typed && $('address').value !== (s.url || '')) {  // keeps up with the page until you start typing
+    $('address').value = s.url || '';
+    if (editing) $('address').select();
+  }
+  $('address').classList.toggle('has-pretty', !!p);
+  $('pretty').innerHTML = '';
+  if (p) {
+    const h = document.createElement('span'); h.className = 'host'; h.textContent = p.host;
+    const r = document.createElement('span'); r.className = 'path'; r.textContent = p.path;
+    $('pretty').append(h, r);
+  }
+  $('site').className = p && !p.secure ? 'insecure' : '';
+  $('site').innerHTML = !s.url ? ICONS.search : (!p ? ICONS.page : (p.secure ? ICONS.lock : ICONS.warn));
+  $('site').title = !p ? '' : (p.secure ? 'Connection is encrypted (HTTPS)' : 'Not secure: this connection is not encrypted');
+
+  const sc = s.scan;
+  $('scan').classList.toggle('show', !!sc.show);
+  if (sc.show) {
+    $('scan').innerHTML = ICONS.spark + '<span></span>';
+    $('scan').querySelector('span').textContent = sc.label;
+    $('scan').style.color = sc.color;
+    $('scan').title = 'Claude Fable page check' + (sc.reason ? ': ' + sc.reason : '');
+  }
+  const sh = s.shields;
+  $('shields').classList.toggle('show', !!sh.show);
+  $('shields').classList.toggle('down', !sh.up);
+  $('count').textContent = sh.up ? (sh.count > 999 ? '999+' : sh.count) : 'off';
+  $('shield-body').setAttribute('fill', sh.up ? 'url(#g)' : '#4a4f59');
+  $('shield-mark').setAttribute('d', sh.up ? 'M8.6 12.2l2.4 2.4 4.6-4.9' : 'M9 9l6 6M15 9l-6 6');
+  $('shields').title = sh.up ? `Lite Shields are up: ${sh.count} ads and trackers blocked on this page` : 'Lite Shields are down for this site';
+
+  const dl = s.downloads || {};
+  $('downloads').className = 'btn' + (dl.show ? ' show ' + dl.state : '');
+  $('downloads').title = ({active: 'Downloading and scanning', clean: 'Downloads - last file scanned, no threats found',
+    threat: 'Downloads - a threat was found'}[dl.state] || 'Downloads') + ' (Ctrl+J)';
+}
+
+function focusAddress() {
+  const a = $('address');
+  a.focus();
+  a.select();
+}
+
+function rectOf(id) {
+  const r = $(id).getBoundingClientRect();
+  return {x: r.left, y: r.top, w: r.width, h: r.height};
+}
+
+$('address').addEventListener('focus', () => { editing = true; $('field').classList.add('focus'); setTimeout(() => $('address').select(), 0); });
+$('address').addEventListener('blur', () => { editing = typed = false; $('field').classList.remove('focus'); if (state) render(state); });
+$('address').addEventListener('input', () => { typed = true; });
+$('address').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.value.trim()) { post({ui: 'go', text: e.target.value.trim()}); typed = false; e.target.blur(); }
+  if (e.key === 'Escape') { typed = false; e.target.blur(); post({ui: 'escape'}); }
+});
+$('back').addEventListener('click', () => post({ui: 'back'}));
+$('forward').addEventListener('click', () => post({ui: 'forward'}));
+$('reload').addEventListener('click', () => post({ui: state && state.loading ? 'stop' : 'reload'}));
+$('newtab').addEventListener('click', () => post({ui: 'newtab'}));
+$('drag').addEventListener('dblclick', () => post({ui: 'newtab'}));
+$('shields').addEventListener('click', () => post({ui: 'shields', rect: rectOf('shields')}));
+$('scan').addEventListener('click', () => post({ui: 'shields', rect: rectOf('shields')}));
+$('menu').addEventListener('click', () => post({ui: 'menu', rect: rectOf('menu')}));
+$('downloads').addEventListener('click', () => post({ui: 'downloads', rect: rectOf('downloads')}));
+$('field').addEventListener('mousedown', (e) => { if (e.target === $('field') || e.target === $('site')) { e.preventDefault(); focusAddress(); } });
+
+document.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  let msg = null;
+  if (e.ctrlKey && !e.altKey) {
+    if (k === 't') msg = {ui: 'newtab'};
+    else if (k === 'n' && e.shiftKey) msg = {ui: 'newtab', private: true};
+    else if (k === 'w' || k === 'f4') msg = {ui: 'close'};
+    else if (k === 'tab') msg = {ui: 'cycle', step: e.shiftKey ? -1 : 1};
+    else if (k >= '1' && k <= '9') msg = {ui: 'nth', n: Number(k)};
+    else if (k === 'r') msg = {ui: 'reload'};
+    else if (k === 'j') msg = {ui: 'downloads'};
+    else if (k === 'l') { focusAddress(); e.preventDefault(); return; }
+  } else if (e.altKey && !e.ctrlKey) {
+    if (k === 'arrowleft') msg = {ui: 'back'};
+    else if (k === 'arrowright') msg = {ui: 'forward'};
+    else if (k === 'd') { focusAddress(); e.preventDefault(); return; }
+  } else if (k === 'f5') msg = {ui: 'reload'};
+  else if (k === 'f6') { focusAddress(); e.preventDefault(); return; }
+  if (msg) { post(msg); e.preventDefault(); }
+});
+
+window.chrome.webview.addEventListener('message', (e) => {
+  const d = e.data;
+  if (d.focus === 'address') focusAddress();
+  else if (d.tabs) render(d);
+});
+window.addEventListener('resize', () => { if (state) render(state); });
+// Leaving the toolbar (e.g. Lite moves focus to the page) really leaves it: otherwise the next click
+// on any toolbar button would put the cursor back in the address bar.
+window.addEventListener('blur', () => { if (document.activeElement) document.activeElement.blur(); });
+post({ui: 'ready'});
+</script>
+</body>
+</html>

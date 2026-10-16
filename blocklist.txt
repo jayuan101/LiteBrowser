@@ -1,0 +1,3 @@
+# Extra ad/tracker domains to block, one per line. Subdomains are blocked too.
+# Lines from a hosts file ("0.0.0.0 ads.example.com") also work.
+# The built-in list lives in browser/blocker.py.

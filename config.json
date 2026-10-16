@@ -1,0 +1,6 @@
+{
+  "model": "claude-fable-5-1",
+  "scan_mode": "new-origins",
+  "https_only": true,
+  "anthropic_api_key": ""
+}

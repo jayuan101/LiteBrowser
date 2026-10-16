@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lite</title>
+<!-- Pop-up panels (Shields, menu, downloads, download warning) in a small borderless window.
+     Lite sends {view, data}; the page renders it, reports its size, and sends back {panel: ...}. -->
+<style>
+:root {
+  --bg: #202329; --card: #2a2d35; --line: rgba(255,255,255,.07); --text: #eceef2; --muted: #9aa0ab; --dim: #6c727d;
+  --hover: rgba(255,255,255,.07); --accent: #fb542b; --accent2: #ff8f3f; --private: #a07bff;
+  --ok: #3fd18f; --warn: #f6b74a; --bad: #ff6b6b;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
+  font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; user-select: none; }
+svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round;
+  stroke-linejoin: round; flex: none; }
+#root { width: 344px; padding: 16px; }
+#root.menu { width: 268px; padding: 6px; }
+#root.downloads { width: 380px; }
+.head { display: flex; align-items: center; gap: 12px; }
+.badge { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none;
+  background: linear-gradient(160deg, #ff8f3f, #fb542b); box-shadow: 0 6px 18px rgba(251,84,43,.35); }
+.badge svg { width: 26px; height: 26px; stroke: #fff; stroke-width: 2.2; }
+.badge.down { background: #3a3e47; box-shadow: none; }
+.badge.private { background: linear-gradient(160deg, #b394ff, #7c4dff); box-shadow: 0 6px 18px rgba(124,77,255,.35); }
+.badge.danger { background: linear-gradient(160deg, #ff8a8a, #e5484d); box-shadow: 0 6px 18px rgba(229,72,77,.35); }
+.title { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { color: var(--muted); font-size: 12.5px; }
+.grow { flex: 1; min-width: 0; }
+.switch { width: 46px; height: 26px; border-radius: 13px; background: #464a54; position: relative; flex: none;
+  cursor: pointer; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(20px); }
+.big { margin: 18px 0 2px; display: flex; align-items: baseline; gap: 10px; }
+.big .n { font-size: 38px; font-weight: 700; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.big .l { color: var(--muted); }
+.card { margin-top: 14px; background: var(--card); border-radius: 12px; padding: 4px 0; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .v { color: var(--muted); font-variant-numeric: tabular-nums; }
+.row .ic { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; flex: none; }
+.row .ic svg { width: 14px; height: 14px; stroke-width: 2.4; }
+.ic.ok { background: rgba(63,209,143,.14); color: var(--ok); }
+.ic.off { background: rgba(255,255,255,.06); color: var(--dim); }
+.ic.warn { background: rgba(246,183,74,.14); color: var(--warn); }
+.ic.bad { background: rgba(255,107,107,.14); color: var(--bad); }
+.ic.ai { background: rgba(160,123,255,.15); color: var(--private); }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 4px 2px; list-style: none; display: flex; gap: 6px; align-items: center; }
+summary::-webkit-details-marker { display: none; }
+summary svg { width: 12px; height: 12px; transition: transform .15s; }
+details[open] summary svg { transform: rotate(90deg); }
+.hosts { margin-top: 6px; max-height: 150px; overflow: auto; background: var(--card); border-radius: 10px; padding: 4px 0; }
+.hosts div { display: flex; justify-content: space-between; padding: 4px 14px; font-size: 12px; color: var(--muted); }
+.hosts div span:first-child { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note { margin-top: 12px; color: var(--muted); font-size: 12px; }
+.note b { color: var(--text); font-weight: 600; }
+.foot { margin-top: 12px; color: var(--dim); font-size: 11.5px; }
+.reason { color: var(--muted); font-size: 12px; padding: 0 14px 10px 46px; margin-top: -4px; }
+.link { color: var(--accent2); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+/* menu */
+.item { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 12px; border-radius: 8px; cursor: default; }
+.item:hover { background: var(--hover); }
+.item .k { margin-left: auto; color: var(--dim); font-size: 12px; }
+.item svg { color: var(--muted); }
+.sep { height: 1px; background: var(--line); margin: 5px 8px; }
+.item.confirm { background: rgba(255,107,107,.12); color: #ffb3b3; }
+/* downloads */
+.dl { display: flex; gap: 12px; padding: 12px 14px; align-items: flex-start; }
+.dl + .dl { border-top: 1px solid var(--line); }
+.file { width: 34px; height: 34px; border-radius: 9px; background: rgba(255,255,255,.06); display: grid; place-items: center; flex: none; color: var(--muted); }
+.dl .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl .st { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.dl .st.ok { color: var(--ok); } .dl .st.bad { color: var(--bad); } .dl .st.warn { color: var(--warn); }
+.bar { height: 4px; border-radius: 2px; background: rgba(255,255,255,.08); margin-top: 7px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff8f3f, #fb542b); }
+.bar.scan i { width: 40% !important; background: linear-gradient(90deg, transparent, #3fd18f, transparent); animation: sweep 1.1s linear infinite; }
+@keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.acts { display: flex; gap: 8px; margin-top: 8px; }
+.b { height: 28px; padding: 0 12px; border-radius: 8px; background: rgba(255,255,255,.08); display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: default; }
+.b:hover { background: rgba(255,255,255,.14); }
+.b.primary { background: var(--accent); color: #fff; }
+.b.primary:hover { background: #ff6a40; }
+.b.danger { background: rgba(255,107,107,.16); color: #ffc1c1; }
+.empty { color: var(--muted); padding: 18px 14px; text-align: center; }
+.btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const post = (msg) => window.chrome.webview.postMessage(msg);
+const I = {
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 2.8l7.5 2.9v5.6c0 4.9-3.3 8.6-7.5 9.9-4.2-1.3-7.5-5-7.5-9.9V5.7z"/><path d="M8.8 12l2.3 2.3 4.3-4.6"/></svg>',
+  shieldOff: '<svg viewBox="0 0 24 24"><path d="M12 2.8l7.5 2.9v5.6c0 4.9-3.3 8.6-7.5 9.9-4.2-1.3-7.5-5-7.5-9.9V5.7z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  dash: '<svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M17 7L7 17M7 7l10 10"/></svg>',
+  alert: '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>',
+  spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  incognito: '<svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>',
+  print: '<svg viewBox="0 0 24 24"><path d="M7 9V4h10v5M7 17H5a1 1 0 0 1-1-1v-5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v5a1 1 0 0 1-1 1h-2"/><path d="M7 14h10v6H7z"/></svg>',
+  code: '<svg viewBox="0 0 24 24"><path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  file: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>',
+  folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+};
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const num = (n) => Number(n || 0).toLocaleString();
+
+function row(icon, cls, label, value) {
+  return `<div class="row"><div class="ic ${cls}">${icon}</div><div class="grow">${label}</div><div class="v">${value}</div></div>`;
+}
+
+function shields(d) {
+  const up = d.up;
+  const on = (n, unit) => up ? num(n) + (unit || '') : 'allowed';
+  let h = `<div class="head"><div class="badge ${up ? (d.private ? 'private' : '') : 'down'}">${up ? I.shield : I.shieldOff}</div>
+    <div class="grow"><div class="title">${esc(d.host)}</div>
+    <div class="sub">${up ? 'Shields are <b style="color:var(--text)">up</b>' : 'Shields are <b style="color:var(--text)">down</b> for this site'}</div></div>
+    <div class="switch ${up ? 'on' : ''}" id="toggle" title="${up ? 'Turn Shields off for this site' : 'Turn Shields back on'}"></div></div>`;
+  h += up ? `<div class="big"><span class="n">${num(d.blocked)}</span><span class="l">ads &amp; trackers blocked</span></div>`
+          : `<div class="note">Ads, trackers and pop-ups are allowed on <b>${esc(d.host)}</b>. Malware checks and HTTPS-only stay on.</div>`;
+  h += '<div class="card">';
+  h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Ads &amp; trackers', on(d.blocked));
+  h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Pop-ups', on(d.popups));
+  h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Tracking links cleaned', on(d.links));
+  h += row(up && d.fixes ? I.check : I.dash, up && d.fixes ? 'ok' : 'off', 'Anti-adblock &amp; video-ad fixes', up ? (d.fixes ? num(d.fixes) + ' active' : 'none needed') : 'off');
+  h += row(I.check, 'ok', 'Malware &amp; scam protection', 'on');
+  h += row(I.check, 'ok', 'Global Privacy Control', 'on');
+  h += row(d.https ? I.check : I.alert, d.https ? 'ok' : 'warn', 'Encrypted connection', d.https ? 'HTTPS' : 'not encrypted');
+  h += '</div>';
+  const sc = d.scan;
+  h += '<div class="card">' + row(I.spark, 'ai', 'Claude Fable page check', `<span style="color:${sc.color}">${esc(sc.label)}</span>`);
+  if (sc.reason) h += `<div class="reason">${esc(sc.reason)}</div>`;
+  h += '</div>';
+  if (up && d.hosts && d.hosts.length) {
+    h += `<details ${d.open ? 'open' : ''} id="det"><summary>${I.chev}What Lite blocked on this page</summary><div class="hosts">` +
+      d.hosts.map(([name, n]) => `<div><span>${esc(name)}</span><span>${num(n)}</span></div>`).join('') + '</div></details>';
+  }
+  if (up) h += `<div class="note">Site not working right? <span class="link" id="off">Turn Shields off for ${esc(d.host)}</span> - you can turn them back on here any time.</div>`;
+  h += `<div class="foot">${esc(d.lists)}</div>`;
+  root(h, '');
+  const t = document.getElementById('toggle');
+  t.addEventListener('click', () => { t.classList.toggle('on'); post({panel: 'toggle'}); });
+  const off = document.getElementById('off');
+  if (off) off.addEventListener('click', () => post({panel: 'toggle'}));
+  const det = document.getElementById('det');
+  if (det) det.addEventListener('toggle', () => { post({panel: 'details', open: det.open}); size(); });
+}
+
+function menu(d) {
+  const items = [
+    ['newtab', I.plus, 'New tab', 'Ctrl+T'],
+    ['private', I.incognito, 'New private tab', 'Ctrl+Shift+N'],
+    ['downloads', I.down, 'Downloads', 'Ctrl+J'],
+    'sep',
+    ['print', I.print, 'Print...', 'Ctrl+P'],
+    ['devtools', I.code, 'Developer tools', 'F12'],
+    'sep',
+    d.confirm ? ['clear-yes', I.trash, 'Click again to clear everything', ''] : ['clear', I.trash, 'Clear browsing data...', ''],
+  ];
+  root(items.map((it) => it === 'sep' ? '<div class="sep"></div>'
+    : `<div class="item ${it[0] === 'clear-yes' ? 'confirm' : ''}" data-id="${it[0]}">${it[1]}<span>${it[2]}</span><span class="k">${it[3]}</span></div>`).join('')
+    + (d.confirm ? '<div class="note" style="padding:4px 12px 8px">Deletes cookies, site data, cache and history for normal tabs. You will be signed out of websites.</div>' : ''), 'menu');
+  for (const el of document.querySelectorAll('.item')) el.addEventListener('click', () => post({panel: 'menu', item: el.dataset.id}));
+}
+
+function downloads(d) {
+  let h = `<div class="head"><div class="badge">${I.down}</div><div class="grow"><div class="title">Downloads</div>
+    <div class="sub">Every download is checked against malware lists, then scanned by ${esc(d.av || 'your antivirus')}</div></div></div>`;
+  h += '<div class="card">';
+  if (!d.items.length) h += '<div class="empty">Nothing downloaded yet this session.</div>';
+  for (const it of d.items) {
+    const st = {downloading: '', waiting: 'warn', scanning: '', clean: 'ok', threat: 'bad', blocked: 'bad', failed: 'warn', unscanned: 'warn', cancelled: ''}[it.state] || '';
+    h += `<div class="dl"><div class="file">${it.state === 'clean' ? '<span style="color:var(--ok)">' + I.shield + '</span>' : (st === 'bad' ? '<span style="color:var(--bad)">' + I.alert + '</span>' : I.file)}</div>
+      <div class="grow"><div class="name" title="${esc(it.path || it.name)}">${esc(it.name)}</div>
+      <div class="st ${st}">${esc(it.status)}</div>`;
+    if (it.state === 'downloading') h += `<div class="bar"><i style="width:${Math.round((it.progress || 0) * 100)}%"></i></div>`;
+    if (it.state === 'scanning') h += '<div class="bar scan"><i></i></div>';
+    const acts = [];
+    if (it.state === 'clean' || it.state === 'unscanned') acts.push(`<span class="b primary" data-act="open" data-id="${it.id}">Open</span>`, `<span class="b" data-act="folder" data-id="${it.id}">${I.folder}Show in folder</span>`);
+    if (it.state === 'waiting') acts.push(`<span class="b primary" data-act="review" data-id="${it.id}">Review</span>`);
+    if (it.state === 'downloading' || it.state === 'waiting') acts.push(`<span class="b danger" data-act="cancel" data-id="${it.id}">Cancel</span>`);
+    if (acts.length) h += `<div class="acts">${acts.join('')}</div>`;
+    h += '</div></div>';
+  }
+  h += '</div>';
+  root(h, 'downloads');
+  for (const el of document.querySelectorAll('[data-act]')) el.addEventListener('click', () => post({panel: 'download', act: el.dataset.act, id: Number(el.dataset.id)}));
+}
+
+function confirmDownload(d) {
+  const h = `<div class="head"><div class="badge danger">${I.alert}</div><div class="grow">
+    <div class="title">${esc(d.name)}</div><div class="sub">from ${esc(d.host)}</div></div></div>
+    <div class="note"><b>This kind of file can run programs on your PC.</b> Only keep it if you trust ${esc(d.host)} and meant to download it.
+    If you keep it, Lite scans it with ${esc(d.av || 'your antivirus')} when it finishes.</div>
+    <div class="btns"><span class="b" id="keep">Download anyway</span><span class="b primary" id="drop">Don't download</span></div>`;
+  root(h, '');
+  document.getElementById('keep').addEventListener('click', () => post({panel: 'confirm', keep: true}));
+  document.getElementById('drop').addEventListener('click', () => post({panel: 'confirm', keep: false}));
+}
+
+function root(html, cls) {
+  const r = document.getElementById('root');
+  r.className = cls;
+  r.innerHTML = html;
+  size();
+}
+
+function size() {
+  const r = document.getElementById('root').getBoundingClientRect();
+  post({panel: 'size', w: Math.ceil(r.width), h: Math.ceil(r.height)});
+}
+
+const VIEWS = {shields, menu, downloads, confirm: confirmDownload};
+window.chrome.webview.addEventListener('message', (e) => {
+  const d = e.data;
+  if (VIEWS[d.view]) VIEWS[d.view](d.data || {});
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') post({panel: 'close'}); });
+post({panel: 'ready'});
+</script>
+</body>
+</html>
