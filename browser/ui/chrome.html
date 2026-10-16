@@ -48,6 +48,7 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .tab.narrow.active .close { display: grid; }
 .tab.private .icon { color: var(--private); }
 .tab.private.active { box-shadow: inset 0 2px 0 var(--private); }
+.tab.pinned .title { font-style: italic; }
 .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.14);
   border-top-color: var(--accent2); animation: spin .75s linear infinite; }
 .tab.private .spinner { border-top-color: var(--private); }
@@ -183,8 +184,9 @@ function tabEl(t) {
     el.querySelector('.icon').innerHTML = t.loading ? '<div class="spinner"></div>'
       : t.favicon ? '<img src="' + t.favicon + '">' : (t.private ? ICONS.incognito : (t.builtin ? ICONS.lite : ICONS.globe));
   }
-  el.querySelector('.title').textContent = t.title;
+  el.querySelector('.title').textContent = (t.pinned ? '\uD83D\uDCCC ' : '') + t.title;
   el.title = t.title;
+  el.classList.toggle('pinned', !!t.pinned);
   el.querySelector('.audio').innerHTML = t.muted ? ICONS.muted : ICONS.speaker;
   el.querySelector('.audio').title = t.muted ? 'Unmute tab' : 'Mute tab';
   el.classList.toggle('active', t.id === state.active);
@@ -299,7 +301,8 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   let msg = null;
   if (e.ctrlKey && !e.altKey) {
-    if (k === 't') msg = {ui: 'newtab'};
+    if (k === 't' && e.shiftKey) msg = {ui: 'reopen'};
+    else if (k === 't') msg = {ui: 'newtab'};
     else if (k === 'n' && e.shiftKey) msg = {ui: 'newtab', private: true};
     else if (k === 'w' || k === 'f4') msg = {ui: 'close'};
     else if (k === 'tab') msg = {ui: 'cycle', step: e.shiftKey ? -1 : 1};
@@ -310,6 +313,10 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'd') msg = {ui: 'star'};
     else if (k === 'h') msg = {ui: 'library'};
     else if (k === ',') msg = {ui: 'settings'};
+    else if (k === '=' || k === '+') msg = {ui: 'zoom', step: 1};
+    else if (k === '-') msg = {ui: 'zoom', step: -1};
+    else if (k === '0') msg = {ui: 'zoom', step: 0};
+    else if (k === 'p' && e.shiftKey) msg = {ui: 'pin'};
     else if (k === 'l') { focusAddress(); e.preventDefault(); return; }
   } else if (e.altKey && !e.ctrlKey) {
     if (k === 'arrowleft') msg = {ui: 'back'};

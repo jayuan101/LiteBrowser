@@ -173,6 +173,7 @@ function menu(d) {
     'sep',
     ['cookies', I.cookie, 'Auto-delete cookies', d.cookies ? 'On' : 'Off'],
     ['downloads', I.down, 'Downloads', 'Ctrl+J'],
+    d.pinned !== undefined ? ['pin', I.star, d.pinned ? 'Unpin tab' : 'Pin tab', 'Ctrl+Shift+P'] : null,
     'sep',
     ['settings', I.code, 'Settings', 'Ctrl+,'],
     ['print', I.print, 'Print...', 'Ctrl+P'],

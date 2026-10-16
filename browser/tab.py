@@ -92,6 +92,7 @@ class Tab:
 
         self.pending_url = url
         self.pending_builtin = None  # a library/settings render waiting for the core to initialize
+        self.pinned = False  # pinned tabs are exempt from sleeping
         self.url = ''
         self.nav_url = ''  # the document being loaded or shown; source of its requests
         self.nav_id = 0
@@ -263,8 +264,14 @@ class Tab:
 
     # ---- tab sleeping ------------------------------------------------------
     def sleepable(self) -> bool:
-        return bool(self.sleep_url is None and not self.builtin and not self.private and not self.loading
-                    and not self.audible and self.host and self.webview.CoreWebView2 is not None)
+        return bool(self.sleep_url is None and not self.builtin and not self.private and not self.pinned
+                    and not self.loading and not self.audible
+                    and self.host and self.webview.CoreWebView2 is not None)
+
+    def toggle_pin(self):
+        """Pinned tabs keep their live renderer: they never sleep."""
+        self.pinned = not self.pinned
+        self.app.refresh_chrome(self)
 
     def sleep(self):
         """Replace the page with a placeholder, freeing the site's renderer."""
@@ -386,6 +393,10 @@ class Tab:
         self.app.https_attempted.pop(self.host, None)
         if not self.private and self.host and not self.app.blocker.is_ad_page(self.url):
             self.app.history.record(self.url, self.title)
+        if self.host and not self.private:  # sites come back at the zoom you left them at
+            z = self.app.zoom_for(self.host)
+            if abs(z - 1.0) > 0.001 and abs(self.webview.ZoomFactor - z) > 0.001:
+                self.webview.ZoomFactor = z
         if self.app.scanner.enabled and not self.private and self.host and self.host not in guard.LOCAL_HOSTS:
             self._start_scan()
         self.app.refresh_chrome(self)
@@ -615,6 +626,8 @@ class Tab:
         key, ctrl, shift, app = int(args.KeyCode), args.Control, args.Shift, self.app
         if ctrl and shift and key == ord('N'):
             app.new_tab(None, private=True)
+        elif ctrl and shift and key == ord('T'):
+            app.reopen_closed()
         elif ctrl and key == ord('T'):
             app.new_tab(None)
         elif ctrl and key in (ord('W'), int(Keys.F4)):
@@ -623,6 +636,14 @@ class Tab:
             app.focus_address()
         elif ctrl and key == int(Keys.Oemcomma):
             app.show_settings()
+        elif ctrl and key in (ord('+'), int(Keys.Add), int(Keys.Oemplus)):
+            app.zoom(1)
+        elif ctrl and key in (ord('-'), int(Keys.Subtract), int(Keys.OemMinus)):
+            app.zoom(-1)
+        elif ctrl and key == ord('0'):
+            app.zoom(0)
+        elif ctrl and shift and key == ord('P'):
+            app.toggle_pin(self)
         elif ctrl and key == int(Keys.Tab):
             app.cycle_tab(-1 if shift else 1)
         elif ctrl and ord('1') <= key <= ord('9'):

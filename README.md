@@ -24,6 +24,12 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   or have open keep their cookies, so you stay logged in where you want and
   everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
+- **Zoom** (Ctrl +/−/0): per-site and remembered across restarts. Ctrl+scroll
+  zooms the page in front of you too, but only the keys are remembered.
+- **Reopen closed tab** (Ctrl+Shift+T): the last ten closed tabs, one press each.
+- **Pin tab** (Ctrl+Shift+P or the menu): a pinned tab never sleeps, so a site
+  you keep around stays exactly where it is - at the cost of keeping its
+  renderer alive (~30 MB per pinned site).
 - **Settings page** (Ctrl+, or the menu): every switch in one place - cookie
   auto-deletion, tab sleeping and its delay, the update check, plus a button
   that wipes all cookies right away. Changes apply immediately and are saved.

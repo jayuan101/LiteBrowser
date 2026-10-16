@@ -147,7 +147,8 @@ def build_report(app, rec: Recorder) -> dict:
         'popups_blocked': tab.popups,
         'links_cleaned': tab.links,
         'site_scripts': sorted(tab.site_scripts),
-        'tabs': [[t.title, t.url] for t in app.tabs],
+        'tabs': [[t.title, t.url, t.pinned, t.sleepable(), round(t.webview.ZoomFactor, 3) if t.webview.CoreWebView2 is not None else 1.0]
+                 for t in app.tabs],
         'downloads': [[d['name'], d['state'], d['status']] for d in app.downloads],
         'requests_seen': len(rec.requests),
         'blocked_by_app': len(blocked),

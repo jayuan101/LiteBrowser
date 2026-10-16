@@ -113,6 +113,7 @@ class App:
 
     def __init__(self, start_urls: list[str]):
         self.name = APP_NAME
+        self.closed: list[tuple[str, str]] = []  # (url, title) of the last ten closed tabs
         self.config = load_config()
         self.data_dir = DATA_DIR
         os.makedirs(self.data_dir, exist_ok=True)
@@ -303,6 +304,12 @@ class App:
             self.show_library()
         elif ui == 'settings':
             self.show_settings()
+        elif ui == 'reopen':
+            self.reopen_closed()
+        elif ui == 'zoom':
+            self.zoom(int(msg.get('step', 0)))
+        elif ui == 'pin' and tab:
+            self.toggle_pin(tab)
 
     def _anchor(self, rect: dict | None = None):
         """Screen rectangle (device pixels) of a toolbar button, from its CSS-pixel rect in chrome.html."""
@@ -330,7 +337,7 @@ class App:
         on_site = bool(tab and tab.host and not tab.builtin)
         return {
             'tabs': [{'id': t.id, 'title': t.title, 'favicon': t.favicon, 'loading': t.loading, 'private': t.private,
-                      'audible': t.audible, 'muted': t.muted, 'builtin': t.builtin} for t in self.tabs],
+                      'audible': t.audible, 'muted': t.muted, 'builtin': t.builtin, 'pinned': t.pinned} for t in self.tabs],
             'active': tab.id if tab else None,
             'url': tab.url if tab else '',
             'private': bool(tab and tab.private),
@@ -453,7 +460,8 @@ class App:
         if not self._toggle_popup('menu'):
             tab = self.current
             data = {'cookies': bool(self.settings.get('auto_delete_cookies', True)),
-                    'reader': bool(tab and (tab.reader_source or (tab.host and not tab.builtin)))}
+                    'reader': bool(tab and (tab.reader_source or (tab.host and not tab.builtin))),
+                    'pinned': bool(tab and not tab.builtin and tab.pinned)}
             self.popup.show('menu', data, anchor or self._anchor())
 
     def _menu(self, item: str):
@@ -474,6 +482,8 @@ class App:
             self.show_library('history')
         elif item == 'settings':
             self.show_settings()
+        elif item == 'pin' and tab:
+            self.toggle_pin(tab)
         elif item == 'reader' and tab:
             tab.toggle_reader()
         elif item == 'cookies':
@@ -670,6 +680,49 @@ class App:
         tab.show_settings()
         tab.webview.Focus()
 
+    # ---- zoom, closed tabs, pinned tabs ------------------------------------
+    def zoom_for(self, host: str) -> float:
+        try:
+            return min(5.0, max(0.25, float(self.settings.get('site_zoom', {}).get(host, 1.0))))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def remember_zoom(self, host: str, factor: float) -> None:
+        if not host or factor <= 0:
+            return
+        zooms = dict(self.settings.get('site_zoom', {}))
+        if abs(factor - 1.0) < 0.001:  # back to 100%: forget the site
+            if host in zooms:
+                zooms.pop(host)
+                self.settings.set('site_zoom', zooms)
+            return
+        if abs(zooms.get(host, 1.0) - factor) > 0.001:
+            zooms[host] = round(factor, 3)
+            self.settings.set('site_zoom', zooms)
+
+    def zoom(self, step: int):
+        """Zoom the current page in (+1), out (-1) or back to 100% (0); keys are remembered per site."""
+        tab = self.current
+        if tab is None or tab.builtin or tab.webview.CoreWebView2 is None:
+            return
+        if step == 0:
+            tab.webview.ZoomFactor = 1.0
+        else:
+            f = tab.webview.ZoomFactor * (1.1 if step > 0 else 1 / 1.1)
+            tab.webview.ZoomFactor = min(5.0, max(0.25, f))
+        if tab.host and not tab.private:  # Ctrl+scroll zoom stays live-only; keys are remembered
+            self.remember_zoom(tab.host, tab.webview.ZoomFactor)
+
+    def reopen_closed(self):
+        if not self.closed:
+            return
+        url, _title = self.closed.pop()
+        self.new_tab(url)
+
+    def toggle_pin(self, tab: Tab | None):
+        if tab is not None and not tab.builtin:
+            tab.toggle_pin()
+
     def set_setting(self, key: str, value) -> None:
         """Apply a change from the settings page right away."""
         if key == 'auto_delete_cookies':
@@ -817,6 +870,9 @@ class App:
             return
         i = self.tabs.index(tab)
         self.tabs.remove(tab)
+        if tab.url and tab.url.startswith(('http://', 'https://')) and not tab.private:
+            self.closed.append((tab.url, tab.title))  # Ctrl+Shift+T brings it back
+            del self.closed[:-10]  # keep the last ten
         if tab is self.active:
             self.active = None
             self.select(self.tabs[min(i, len(self.tabs) - 1)])
