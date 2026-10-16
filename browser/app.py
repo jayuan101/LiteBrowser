@@ -32,7 +32,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.6'
+APP_VERSION = '0.2.7'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -991,7 +991,7 @@ del "%~f0"\r''')
         if not self.settings.get('tab_sleep', True):
             return
         minutes = int(self.settings.get('sleep_after_minutes', 30))
-        if self.settings.get('performance_mode'):  # high performance: background tabs let go in 5 minutes
+        if self.settings.get('performance_mode', False):  # high performance: background tabs let go in 5 minutes
             minutes = min(minutes, 5)
         limit = minutes * 60
         now = time.time()

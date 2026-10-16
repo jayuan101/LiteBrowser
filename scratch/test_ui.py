@@ -35,6 +35,17 @@ for path in sorted(glob.glob(os.path.join(ROOT, 'browser', '*.py'))):
     except py_compile.PyCompileError as e:
         check(f'compiles: {os.path.basename(path)}', False, str(e)[:300])
 
+# Settings.get(key, default) has no default of its own: a call without one raises inside a
+# WebView2 or timer callback (it broke every tab's setup and the tab-sleep timer in 0.2.4-0.2.6)
+no_default = []
+for path in sorted(glob.glob(os.path.join(ROOT, 'browser', '*.py'))):
+    with open(path, encoding='utf-8') as f:
+        for n, line in enumerate(f, 1):
+            for m in re.finditer(r'settings\.get\(([^()]*)\)', line):
+                if ',' not in m.group(1):
+                    no_default.append(f'{os.path.basename(path)}:{n}: {line.strip()}')
+check('every settings.get() passes a default', not no_default, '\n      '.join(no_default))
+
 
 def scripts_ok(name, html):
     blocks = re.findall(r'<script>(.*?)</script>', html, re.S)

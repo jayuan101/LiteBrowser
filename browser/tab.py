@@ -145,7 +145,7 @@ class Tab:
         s.IsPasswordAutosaveEnabled = False
         s.IsGeneralAutofillEnabled = False
         s.UserAgent = _trim_user_agent(s.UserAgent)
-        if self.app.settings.get('performance_mode'):
+        if self.app.settings.get('performance_mode', False):
             core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low
 
         core.DocumentTitleChanged += self._on_title_changed
