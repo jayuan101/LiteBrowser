@@ -24,6 +24,9 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   or have open keep their cookies, so you stay logged in where you want and
   everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
+- **Settings page** (Ctrl+, or the menu): every switch in one place - cookie
+  auto-deletion, tab sleeping and its delay, the update check, plus a button
+  that wipes all cookies right away. Changes apply immediately and are saved.
 - **Bookmarks and history** (Ctrl+D to star, Ctrl+H for history, or the
   library button): one searchable, built-in page manages both.
 - **Reader mode** (the book button or View menu): an article page re-rendered

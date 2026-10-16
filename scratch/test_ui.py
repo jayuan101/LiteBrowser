@@ -60,6 +60,7 @@ scripts_ok('empty library page', pages.library_html([], []))
 scripts_ok('reader page', pages.reader_html({'title': 'T" & t', 'url': 'https://x.example/a',
                                              'blocks': [{'t': 'p', 'x': 'Hi <there>'}, {'t': 'li', 'x': 'one'}]}))
 scripts_ok('sleeping page', pages.sleeping_html('https://x.example/'))
+scripts_ok('settings page', pages.settings_html(True, True, 30, True, '0.2.0'))
 
 def js_ok(name, js):
     if not NODE:
@@ -81,6 +82,12 @@ check('new tab page promises no sponsored content', 'never shows ads, sponsored'
 banner = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'})
 check('update banner renders and links', 'Lite 0.3.0' in banner and "cmd:'update'" in banner)
 check('no banner by default', 'class=banner' not in html)
+st = pages.settings_html(False, True, 45, False, '0.2.0')
+check('settings page shows the stored values',
+      'value=45' in st and '<button class="tog" data-k=auto_delete_cookies' in st
+      and '<button class="tog on" data-k=tab_sleep' in st,
+      st[:200])
+check('settings page sends changes back', all(s in st for s in ("cmd:'settings'", "cmd:'clearcookies'", "cmd:'updates'")))
 warn = pages.blocked_html('https://evil.example/"<x>', 'r', 'warn')
 check('warning page escapes the URL', '"<x>' not in warn.split('<script>')[0] and 'Continue anyway' in warn)
 check('hard block has no way through', 'Continue anyway' not in pages.blocked_html('javascript:x', 'r', 'block'))

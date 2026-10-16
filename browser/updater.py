@@ -10,6 +10,7 @@ import time
 import urllib.request
 
 API = 'https://api.github.com/repos/jayuan101/LiteBrowser/releases/latest'
+RELEASES_URL = 'https://github.com/jayuan101/LiteBrowser/releases'
 DAY = 24 * 3600
 
 

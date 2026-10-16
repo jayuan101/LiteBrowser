@@ -17,7 +17,7 @@ import traceback
 from collections import Counter
 from urllib.parse import quote_plus, unquote, urlparse
 
-from . import filters, guard, pages, privacy
+from . import filters, guard, pages, privacy, updater
 from .scanner import COLLECT_JS
 from .webview2 import (
     Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2WebResourceContext,
@@ -91,6 +91,7 @@ class Tab:
         app.content.Controls.Add(self.webview)
 
         self.pending_url = url
+        self.pending_builtin = None  # a library/settings render waiting for the core to initialize
         self.url = ''
         self.nav_url = ''  # the document being loaded or shown; source of its requests
         self.nav_id = 0
@@ -157,6 +158,9 @@ class Tab:
                 self.navigate(self.pending_url)
             else:
                 self.show_new_tab()
+                if self.pending_builtin:  # library/settings asked for before the core existed
+                    fn, self.pending_builtin = self.pending_builtin, None
+                    fn()
         core.AddScriptToExecuteOnDocumentCreatedAsync(filters.COSMETIC_JS).ContinueWith(
             Action[Task[String]](lambda task: self._set_fingerprinting(True, then=lambda: start(task))),
             self.scheduler)
@@ -204,12 +208,29 @@ class Tab:
 
     def show_library(self, view: str = 'history'):
         """Bookmarks and history in the current tab (a new tab if this page is a real site)."""
+        if self.webview.CoreWebView2 is None:  # a just-created tab: render when the core is ready
+            self.pending_builtin = lambda: self.show_library(view)
+            return
         self.library_view = view
         self.sleep_url = None
         self.reader_source = None
         self.title = 'Bookmarks' if view == 'bookmarks' else 'History'
         self.favicon = ''
         self._show_builtin(pages.library_html(self.app.bookmarks.items(), self.app.history.recent(), view))
+        self.app.refresh_chrome(self)
+
+    def show_settings(self):
+        if self.webview.CoreWebView2 is None:  # a just-created tab: render when the core is ready
+            self.pending_builtin = lambda: self.show_settings()
+            return
+        self.sleep_url = None
+        self.reader_source = None
+        self.title = 'Settings'
+        self.favicon = ''
+        s = self.app.settings
+        self._show_builtin(pages.settings_html(s.get('auto_delete_cookies', True), s.get('tab_sleep', True),
+                                               int(s.get('sleep_after_minutes', 30)), s.get('update_check', True),
+                                               self.app.version))
         self.app.refresh_chrome(self)
 
     def show_reader(self, article: dict):
@@ -560,6 +581,12 @@ class Tab:
         elif cmd == 'clearhist':
             self.app.history.clear()
             self.show_library('history')
+        elif cmd == 'settings':
+            self.app.set_setting(str(msg.get('key', '')), msg.get('value'))
+        elif cmd == 'clearcookies':
+            self.app.clear_cookies_now()
+        elif cmd == 'updates':
+            self.app.new_tab(updater.RELEASES_URL)
         elif cmd == 'update' and self.app.update_banner:
             self.app.new_tab(self.app.update_banner['url'])
 
@@ -594,6 +621,8 @@ class Tab:
             app.close_tab(self)
         elif (ctrl and key == ord('L')) or key == int(Keys.F6) or (args.Alt and key == ord('D')):
             app.focus_address()
+        elif ctrl and key == int(Keys.Oemcomma):
+            app.show_settings()
         elif ctrl and key == int(Keys.Tab):
             app.cycle_tab(-1 if shift else 1)
         elif ctrl and ord('1') <= key <= ord('9'):

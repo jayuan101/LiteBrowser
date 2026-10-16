@@ -216,6 +216,86 @@ for(const b of document.querySelectorAll('h1 button'))b.classList.toggle('on',b.
 </script></body></html>"""
 
 
+SETTINGS_CSS = _BASE + """
+body{justify-content:flex-start;padding:6vh 0 40px}
+.wrap{width:min(680px,92vw)}
+h1{font-size:22px;font-weight:600;margin:0 0 24px}
+section{background:#17191e;border:1px solid #2b2f37;border-radius:14px;padding:6px 18px;margin-bottom:16px}
+section h2{font-size:12.5px;font-weight:600;color:#fb542b;letter-spacing:.4px;text-transform:uppercase;margin:14px 0 2px}
+.set{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #ffffff0a}
+.set:last-child{border-bottom:0}
+.set .txt{flex:1;min-width:0}
+.set .txt div{color:#e6e8ec}
+.set .txt small{display:block;color:#6c727d;font-size:12.5px;margin-top:2px}
+.tog{flex:none;width:44px;height:24px;border-radius:12px;background:#2b2f37;position:relative;cursor:pointer;
+  transition:.15s;border:0;padding:0}
+.tog::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:9px;background:#8d93a0;transition:.15s}
+.tog.on{background:var(--accent)}
+.tog.on::after{left:23px;background:#fff}
+.min{flex:none;width:74px;height:34px;padding:0 10px;border-radius:9px;border:1px solid #2b2f37;background:#101216;
+  color:#fff;font:inherit;text-align:right}
+.min:focus{border-color:var(--accent);outline:0}
+.min[disabled]{opacity:.4}
+button.act{background:transparent;border:1px solid #2b2f37;color:#9aa0ab;border-radius:9px;padding:8px 16px;
+  font:inherit;font-size:13px;cursor:pointer;flex:none}
+button.act:hover{color:#fff;border-color:var(--accent)}
+button.act.armed{border-color:#4a2626;color:#ff8b8b}
+button.act.link:hover{color:#fb542b}
+small.ver{color:#6c727d}
+"""
+
+
+def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str) -> str:
+    """Everything Lite can be tuned for, with switches that take effect right away."""
+    return f"""<!doctype html><html><head><meta charset=utf-8><title>Settings</title><style>{SETTINGS_CSS}</style></head>
+<body><div class=wrap><h1>Settings</h1>
+
+<section><h2>Privacy</h2>
+<div class=set><div class=txt><div>Delete cookies of sites I have not starred</div>
+<small>Every 30 seconds, and when Lite closes. Star a site (Ctrl+D) or keep it open to stay signed in.</small></div>
+<button class="tog{' on' if cookies else ''}" data-k=auto_delete_cookies aria-label="toggle"></button></div>
+<div class=set><div class=txt><div>Delete all cookies now</div>
+<small>Every site is signed out, including starred ones.</small></div>
+<button class=act id=clear-cookies>Delete all cookies</button></div>
+</section>
+
+<section><h2>Tabs</h2>
+<div class=set><div class=txt><div>Put background tabs to sleep</div>
+<small>A tab you have not looked at for a while gives its memory back and reloads when you return to it.</small></div>
+<button class="tog{' on' if tab_sleep else ''}" data-k=tab_sleep aria-label="toggle"></button></div>
+<div class=set><div class=txt><div>Sleep after</div><small>How long a background tab stays awake.</small></div>
+<input class=min id=sleep-min type=number min=1 max=1440 value={max(1, min(1440, sleep_minutes))}></div>
+</section>
+
+<section><h2>Updates</h2>
+<div class=set><div class=txt><div>Check for updates at start</div>
+<small>Lite looks at GitHub releases and tells you quietly - it never installs anything by itself.</small></div>
+<button class="tog{' on' if update_check else ''}" data-k=update_check aria-label="toggle"></button></div>
+</section>
+
+<section><h2>About</h2>
+<div class=set><div class=txt><div>Lite <span class=ver>v{version}</span></div>
+<small>A lightweight, privacy-first browser. MIT licensed, open source.</small></div>
+<button class="act link" id=rel>Check for updates</button></div>
+</section>
+
+</div>
+<script>
+function set(key, value){{window.chrome.webview.postMessage({{cmd:'settings',key:key,value:value}})}}
+for(const b of document.querySelectorAll('button.tog')){{
+  b.addEventListener('click',()=>{{b.classList.toggle('on');set(b.dataset.k,b.classList.contains('on'))}})}}
+const m=document.getElementById('sleep-min');
+document.querySelector('[data-k=tab_sleep]').addEventListener('click',()=>{{m.disabled=!document.querySelector('[data-k=tab_sleep]').classList.contains('on')}});
+m.addEventListener('change',()=>{{const v=Math.max(1,Math.min(1440,Math.round(+m.value||30)));m.value=v;set('sleep_after_minutes',v)}});
+const cc=document.getElementById('clear-cookies');
+cc.addEventListener('click',()=>{{
+  if(cc.classList.contains('armed')){{cc.classList.remove('armed');cc.textContent='Delete all cookies';
+    window.chrome.webview.postMessage({{cmd:'clearcookies'}})}}
+  else{{cc.classList.add('armed');cc.textContent='Click again to confirm'}}}});
+document.getElementById('rel').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'updates'}}));
+</script></body></html>"""
+
+
 READER_CSS = _BASE + """
 body{justify-content:flex-start;padding:8vh 0 60px}
 .wrap{width:min(680px,90vw)}

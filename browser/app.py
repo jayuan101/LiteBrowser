@@ -109,6 +109,8 @@ def _words(name: str) -> str:
 
 
 class App:
+    version = APP_VERSION
+
     def __init__(self, start_urls: list[str]):
         self.name = APP_NAME
         self.config = load_config()
@@ -468,6 +470,8 @@ class App:
             self.show_library('bookmarks')
         elif item == 'history':
             self.show_library('history')
+        elif item == 'settings':
+            self.show_settings()
         elif item == 'reader' and tab:
             tab.toggle_reader()
         elif item == 'cookies':
@@ -654,8 +658,52 @@ class App:
         tab.show_library(view)
         tab.webview.Focus()
 
+    def show_settings(self):
+        tab = self.current
+        if tab is None:
+            return
+        if not tab.builtin:  # keep the page you were on: settings open in their own tab
+            self.new_tab(None)
+            tab = self.current
+        tab.show_settings()
+        tab.webview.Focus()
+
+    def set_setting(self, key: str, value) -> None:
+        """Apply a change from the settings page right away."""
+        if key == 'auto_delete_cookies':
+            self.settings.set(key, bool(value))
+            if value:
+                self._cookie_sweep()
+        elif key == 'tab_sleep':
+            self.settings.set(key, bool(value))
+        elif key == 'sleep_after_minutes':
+            self.settings.set(key, max(1, min(1440, int(value or 30))))
+        elif key == 'update_check':
+            self.settings.set(key, bool(value))
+
+    def clear_cookies_now(self):
+        """Wipe every cookie, starred sites included - the settings page's explicit button."""
+        core = self.chrome.CoreWebView2
+        if core is None:
+            return
+        try:
+            task = core.CookieManager.GetCookiesAsync(None)
+        except Exception:
+            return
+
+        def worker():
+            for _ in range(100):
+                if task.IsCompleted:
+                    break
+                time.sleep(0.1)
+            if task.IsCompleted and not task.IsFaulted:
+                self.later(lambda: self._delete_cookies(task.Result, set(), everything=True))
+        threading.Thread(target=worker, daemon=True).start()
+
     def _check_updates(self):
         """Worker thread: once a day, does this release exist on GitHub that is newer?"""
+        if not self.settings.get('update_check', True):
+            return
         update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION)
         if update:
             self.later(lambda: self._use_update_banner(update))
@@ -717,13 +765,13 @@ class App:
                 self.later(lambda: self._delete_cookies(task.Result, open_hosts))
         threading.Thread(target=worker, daemon=True).start()
 
-    def _delete_cookies(self, cookies, open_hosts: set[str]):
+    def _delete_cookies(self, cookies, open_hosts: set[str], everything: bool = False):
         try:
             for c in cookies:
                 uri = f'https://{str(c.Domain).lstrip(".").lower()}{c.Path}'
-                keep = host_keeps_cookie(str(c.Domain), self.bookmarks.hosts(), open_hosts)
-                if not keep:
-                    self.chrome.CoreWebView2.CookieManager.DeleteCookies(str(c.Name), uri)
+                if not everything and host_keeps_cookie(str(c.Domain), self.bookmarks.hosts(), open_hosts):
+                    continue
+                self.chrome.CoreWebView2.CookieManager.DeleteCookies(str(c.Name), uri)
         except Exception:
             pass  # best effort: a failed sweep just leaves the cookies for the next one
 
