@@ -89,8 +89,10 @@ Lite {escape(version)} &middot; never shows ads, sponsored tiles or sponsored im
                            f'{escape(banner.get("name") or banner["tag"])}</b>'
                            f'<span>The new version is downloaded - click and Lite restarts into it</span></div>')
         else:
+            error = (update or {}).get('error')
+            hint = f'{escape(error)} - click to try again' if error else 'Click to try again'
             banner_html = ('<div class=banner role=button id=banner><b>Couldn\'t download the update</b>'
-                           '<span>Click to try again</span></div>')
+                           f'<span>{hint}</span></div>')
         css += """.banner{margin:0 0 26px;padding:12px 22px;border-radius:14px;cursor:pointer;text-align:center;
 background:#1c1f25;border:1px solid #2b2f37;color:#eceef2;font-size:14px}
 .banner b{color:var(--accent2)}

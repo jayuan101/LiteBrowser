@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from . import default_browser, filters, guard, importer, privacy, search as search_mod, updater
 from .blocker import Blocker
-from .downloads import Scanner as AntivirusScanner
+from .downloads import Scanner as AntivirusScanner, fallback_path
 from .passwords import Passwords
 from .popup import Popup
 from .scanner import FableScanner
@@ -32,7 +32,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.5'
+APP_VERSION = '0.2.6'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -558,7 +558,9 @@ class App:
         """WebView2's own download box shows progress (and asks before keeping files Windows
         SmartScreen does not know). Lite adds the checks before and the antivirus scan after."""
         op = args.DownloadOperation
-        url, path = str(op.Uri), str(args.ResultFilePath)
+        url, path = str(op.Uri), fallback_path(str(args.ResultFilePath))
+        if path != str(args.ResultFilePath):  # Windows' Downloads folder is on a drive that is not there
+            args.ResultFilePath = path
         self._download_ids += 1
         item = {'id': self._download_ids, 'name': os.path.basename(path), 'path': path, 'url': url, 'tab': tab,
                 'op': op, 'state': 'downloading', 'status': 'Starting...', 'progress': 0.0, 'moved': time.time()}
@@ -905,7 +907,13 @@ class App:
             self._install_update()
             return
         if not self.update_banner:  # pressed before the daily check: look right now
-            update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION, force=True)
+            try:
+                update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION, force=True)
+            except Exception as e:
+                self._log_update_error()
+                self.update_note = f"Couldn't check for updates - {updater.describe(e)}."
+                self._refresh_settings_pages()
+                return
             if not update:
                 self.update_note = f'You are up to date - Lite {APP_VERSION} is the newest release.'
                 self._refresh_settings_pages()
@@ -915,18 +923,30 @@ class App:
             self._start_download()  # a failed download: the buttons try again
 
     def _download_update(self):
-        """Worker thread: fetch the release zip and unpack it next to nothing important."""
+        """Worker thread: fetch the release zip into this process's work folder and unpack it there."""
+        updater.clean_leftovers()
         try:
             url = updater.asset_url(self.update_banner['tag'])
             if not url:
-                raise FileNotFoundError('the release has no Lite-windows-x64.zip asset')
+                raise FileNotFoundError(f'the release has no {updater.ASSET}')
             folder = updater.unpack(updater.download(url))
             state = {'phase': 'ready', 'folder': folder}
-        except Exception:
-            traceback.print_exc()
-            state = {'phase': 'idle'}  # the banner goes back to inviting a retry
+        except Exception as e:
+            self._log_update_error()
+            state = {'phase': 'idle', 'error': updater.describe(e)}  # the banner says why and invites a retry
         self.update_state = state
         self.later(self._refresh_update_pages)
+
+    def _log_update_error(self):
+        """The packaged app has no console: why an update failed goes to update.log in the profile."""
+        traceback.print_exc()
+        try:
+            path = os.path.join(self.data_dir, 'update.log')
+            mode = 'a' if os.path.isfile(path) and os.path.getsize(path) < 64 * 1024 else 'w'
+            with open(path, mode, encoding='utf-8') as f:
+                f.write(f'--- {time.strftime("%Y-%m-%d %H:%M:%S")} Lite {APP_VERSION}\n{traceback.format_exc()}\n')
+        except OSError:
+            pass
 
     def _install_update(self):
         """Exit, then a detached script swaps the extracted release over this folder and restarts Lite."""
@@ -935,7 +955,9 @@ class App:
             return
         pid, target = os.getpid(), os.path.dirname(os.path.abspath(sys.executable))
         script = os.path.join(tempfile.gettempdir(), f'Lite-update-{pid}.cmd')
-        download_dir = os.path.dirname(os.path.abspath(folder))
+        download_dir = updater.work_dir()  # only ever this folder: never the folder that holds it
+        if not os.path.abspath(folder).startswith(download_dir + os.sep):
+            return
         with open(script, 'w', encoding='ascii') as f:
             # ping is the delay because "timeout" aborts a batch that has no console to read.
             # The copy is the wait: this folder is locked while Lite runs, so xcopy only
@@ -954,12 +976,14 @@ if errorlevel 1 (\r
 start "" "{target}\\Lite.exe"\r
 rd /s /q "{download_dir}"\r
 del "%~f0"\r''')
-        DETACHED, BREAKAWAY = 0x00000008, 0x01000000  # DETACHED_PROCESS; leave any job that would kill children
+        # A hidden console that xcopy and ping share: under DETACHED_PROCESS each of them would
+        # open a console window of its own. Breakaway leaves any job that would kill children.
+        NO_WINDOW, BREAKAWAY = 0x08000000, 0x01000000
         try:
-            subprocess.Popen(['cmd', '/c', script], creationflags=DETACHED | BREAKAWAY, close_fds=True,
+            subprocess.Popen(['cmd', '/c', script], creationflags=NO_WINDOW | BREAKAWAY, close_fds=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
-            subprocess.Popen(['cmd', '/c', script], creationflags=DETACHED, close_fds=True,
+            subprocess.Popen(['cmd', '/c', script], creationflags=NO_WINDOW, close_fds=True,
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.form.Close()
 

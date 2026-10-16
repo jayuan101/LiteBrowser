@@ -72,8 +72,14 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 
 Grab `Lite-windows-x64.zip` from the
 [latest release](https://github.com/jayuan101/LiteBrowser/releases/latest),
-unzip it anywhere and run `Lite.exe`. No Python needed. Windows 10/11 with the
+unzip it to a folder of its own (for example `%LOCALAPPDATA%\Programs\Lite`, no
+admin needed) and run `Lite.exe`. No Python needed. Windows 10/11 with the
 WebView2 runtime (ships with Windows 11 and Edge) is required.
+
+From 0.2.1 on, Lite updates itself in place. Copies of 0.2.0 or older only open
+the release page: download the zip once by hand, close Lite, and unzip the
+`Lite` folder's contents over the old copy. Don't run Lite from the repo's
+`dist\` folder, because every build replaces it.
 
 Windows SmartScreen may warn on first run because the build is not code-signed;
 choose "More info" > "Run anyway".

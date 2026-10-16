@@ -83,15 +83,110 @@ check('version older is not newer', not updater.is_newer('v0.1.9', '0.2.0'))
 check('version longer wins', updater.is_newer('0.2.0.1', '0.2.0'))
 check('garbage version is not newer', not updater.is_newer('', '0.2.0'))
 
+import json as _json  # noqa: E402
+import pathlib  # noqa: E402
+import time as _time  # noqa: E402
+import urllib.error  # noqa: E402
+import zipfile  # noqa: E402
+
+real_api = updater.API
 cache = os.path.join(tmp, 'updates.json')
-check('check with no network file: no crash', updater.check(cache, '0.0.1', timeout=0.001) is None)
+updater.API = 'http://127.0.0.1:9/releases/latest'  # nothing listens there: an offline check
+check('offline check: no crash, no update', updater.check(cache, '0.0.1', timeout=2) is None)
+check('offline check: not cached, the next start asks again', not os.path.exists(cache))
+try:
+    updater.check(cache, '0.0.1', timeout=2, force=True)
+    forced = None
+except Exception as e:  # noqa: BLE001
+    forced = updater.describe(e)
+check('offline forced check: raises a plain reason', forced == 'no connection to GitHub', forced)
+
+release = os.path.join(tmp, 'latest.json')
+with open(release, 'w', encoding='utf-8') as f:
+    _json.dump({'tag_name': 'v0.9.0', 'name': 'Lite 0.9.0', 'html_url': 'https://example.com/r'}, f)
+updater.API = pathlib.Path(release).as_uri()
+found = updater.check(cache, '0.2.0', force=True)
+check('successful check finds the newer release', bool(found) and found['tag'] == 'v0.9.0', found)
 updater_json = None
 try:
     with open(cache, encoding='utf-8') as f:
-        updater_json = __import__('json').load(f)
+        updater_json = _json.load(f)
 except OSError:
     pass
-check('cache written after a check', updater_json is not None and 'checked' in updater_json)
+check('cache written after a successful check', updater_json is not None and 'checked' in updater_json)
+updater.API = real_api
+os.remove(cache)
+
+check('reason: rate limited', 'limiting' in updater.describe(urllib.error.HTTPError('u', 403, 'x', None, None)))
+check('reason: damaged zip', updater.describe(zipfile.BadZipFile('x')) == 'the download was damaged')
+check('reason: our own message', updater.describe(FileNotFoundError('the release has no x.zip')) ==
+      'the release has no x.zip')
+
+wd = updater.work_dir()
+check('work folder is per process and inside %TEMP%, never %TEMP% itself',
+      os.path.dirname(wd) == tempfile.gettempdir() and wd.endswith(f'Lite-update-{os.getpid()}'), wd)
+
+
+def release_zip(folder, wrapped):
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, 'source.zip')
+    with zipfile.ZipFile(path, 'w') as z:
+        prefix = 'Lite/' if wrapped else ''
+        z.writestr(prefix + 'Lite.exe', b'MZ fake')
+        z.writestr(prefix + '_internal/base_library.zip', b'x')
+    return path
+
+
+for wrapped in (True, False):
+    label = 'wrapped in a Lite folder' if wrapped else 'no wrapping folder'
+    work = os.path.join(tmp, f'Lite-update-{int(wrapped)}')
+    src = release_zip(os.path.join(tmp, f'src-{int(wrapped)}'), wrapped)
+    got = updater.download(pathlib.Path(src).as_uri(), folder=work)
+    check(f'download ({label}): lands in the work folder', got == os.path.join(work, updater.ASSET), got)
+    app_dir = updater.unpack(got)
+    check(f'unpack ({label}): finds Lite.exe', os.path.isfile(os.path.join(app_dir, 'Lite.exe')))
+    check(f'unpack ({label}): strictly inside the work folder', app_dir.startswith(work + os.sep), app_dir)
+    check(f'unpack ({label}): the zip is deleted', not os.path.exists(got))
+    check(f'unpack ({label}): a retry starts clean', updater.unpack(updater.download(
+        pathlib.Path(src).as_uri(), folder=work)) == app_dir)
+
+empty = os.path.join(tmp, 'Lite-update-empty')
+os.makedirs(empty)
+with zipfile.ZipFile(os.path.join(empty, updater.ASSET), 'w') as z:
+    z.writestr('readme.txt', b'no app here')
+try:
+    updater.unpack(os.path.join(empty, updater.ASSET))
+    no_exe = None
+except FileNotFoundError as e:
+    no_exe = updater.describe(e)
+check('a zip without Lite.exe is refused with a reason', no_exe == 'the downloaded update has no Lite.exe', no_exe)
+
+# leftovers in %TEMP% from other Lite processes: old ones go, fresh ones and look-alikes stay
+fake_temp = os.path.join(tmp, 'temp')
+os.makedirs(fake_temp)
+old = _time.time() - 2 * 3600
+names = {'Lite-update-111': 'dir', 'Lite-update-222.zip': 'file', 'Lite-update-333.cmd': 'file',
+         'Lite-update-444': 'fresh', f'Lite-update-{os.getpid()}': 'mine', 'Lite-update-notes': 'file',
+         'Lite-updater-555': 'dir'}
+for name, kind in names.items():
+    path = os.path.join(fake_temp, name)
+    if kind == 'file':
+        open(path, 'w').close()
+    else:
+        os.makedirs(os.path.join(path, 'app'))
+    if kind != 'fresh':
+        os.utime(path, (old, old))
+saved_tempdir, tempfile.tempdir = tempfile.tempdir, fake_temp
+try:
+    updater.clean_leftovers()
+finally:
+    tempfile.tempdir = saved_tempdir
+left = set(os.listdir(fake_temp))
+check('leftovers: old update folders, zips and scripts removed',
+      not left & {'Lite-update-111', 'Lite-update-222.zip', 'Lite-update-333.cmd'}, left)
+check('leftovers: a fresh one (maybe mid-update) is kept', 'Lite-update-444' in left, left)
+check("leftovers: this process's own folder is kept", f'Lite-update-{os.getpid()}' in left, left)
+check('leftovers: look-alike names are not touched', {'Lite-update-notes', 'Lite-updater-555'} <= left, left)
 
 # ---- default browser registration (throwaway keys, cleaned up) -------------
 import winreg

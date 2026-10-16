@@ -19,6 +19,38 @@ AMSI_RESULT_DETECTED = 32768
 AMSI_BLOCKED_BY_ADMIN = range(0x4000, 0x5000)
 
 
+def fallback_folder() -> str:
+    """Where downloads go when Windows' Downloads folder cannot be used: the profile's own
+    Downloads folder, else one inside Lite's data folder."""
+    home = os.path.join(os.path.expanduser('~'), 'Downloads')
+    if os.path.isdir(home):
+        return home
+    folder = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'), 'LiteBrowser', 'Downloads')
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def fallback_path(path: str, folder: str | None = None) -> str:
+    """`path` when its folder exists or can be made; otherwise the same name in a folder that works.
+
+    Windows' Downloads folder can live on a drive that is not there (an unplugged USB disk),
+    and WebView2 then fails every download. A new name never overwrites a file already there.
+    """
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+    except (OSError, ValueError):
+        pass
+    folder = folder or fallback_folder()
+    name = os.path.basename(path) or 'download'
+    stem, ext = os.path.splitext(name)
+    candidate, n = os.path.join(folder, name), 1
+    while os.path.exists(candidate):
+        candidate = os.path.join(folder, f'{stem} ({n}){ext}')
+        n += 1
+    return candidate
+
+
 def antivirus_name() -> str | None:
     """The product AMSI scans with, e.g. 'Sophos' or 'Microsoft Defender'; None if there is none."""
     try:

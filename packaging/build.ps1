@@ -5,6 +5,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+# A Lite started from dist\Lite locks the folder PyInstaller is about to replace
+$distApp = Join-Path $root 'dist\Lite\'
+$running = Get-CimInstance Win32_Process -Filter "Name='Lite.exe'" |
+    Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($distApp, [StringComparison]::OrdinalIgnoreCase) }
+if ($running) { throw "Lite is running from dist\Lite (pid $($running.ProcessId -join ', ')) - close it, then build again" }
+
 python packaging\make_icon.py
 python -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging\lite.spec
 if ($LASTEXITCODE -ne 0) { throw "pyinstaller failed" }

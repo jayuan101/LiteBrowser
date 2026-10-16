@@ -96,6 +96,12 @@ downloading = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.
 check('downloading banner is not clickable', 'Updating in the background' in downloading and 'id=banner' not in downloading)
 failed = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'})
 check('failed download invites a retry', "Couldn't download the update" in failed and "cmd:'update'" in failed)
+failed_why = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'},
+                                update={'phase': 'idle', 'error': 'no connection to GitHub'})
+check('failed download says why', 'no connection to GitHub - click to try again' in failed_why
+      and "cmd:'update'" in failed_why)
+check('failed download reason is escaped', '&lt;b&gt;' in pages.new_tab_html(
+    counts, '', '', banner={'tag': 'v1', 'url': 'u'}, update={'phase': 'idle', 'error': '<b>'}))
 check('no banner by default', 'class=banner' not in html)
 st = pages.settings_html(False, True, 45, False, '0.2.0')
 check('settings page shows the stored values',

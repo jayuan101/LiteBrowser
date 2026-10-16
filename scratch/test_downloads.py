@@ -83,5 +83,26 @@ check('scan error: "unscanned", never "clean"', fake.scan(harmless())[0], 'unsca
 fake._amsi = FakeAmsi(1)
 check('AMSI_RESULT_NOT_DETECTED: clean', fake.scan(harmless())[0], 'clean')
 
+# ---- a Downloads folder on a drive that is not there (unplugged USB disk) ----
+import string  # noqa: E402
+
+here = tempfile.mkdtemp(prefix='lite-dl-')
+check('download folder exists: path kept', downloads.fallback_path(os.path.join(here, 'a.zip')),
+      os.path.join(here, 'a.zip'))
+check('missing subfolder on a working drive: created, path kept',
+      (downloads.fallback_path(os.path.join(here, 'sub', 'b.zip')), os.path.isdir(os.path.join(here, 'sub'))),
+      (os.path.join(here, 'sub', 'b.zip'), True))
+gone = next(d + ':\\' for d in reversed(string.ascii_uppercase) if not os.path.exists(d + ':\\'))
+missing = os.path.join(gone, 'UserData', 'Downloads', 'a.zip')
+dest = os.path.join(tempfile.mkdtemp(prefix='lite-dl-'), 'fallback')
+os.makedirs(dest)
+check('missing drive: redirected to the fallback folder', downloads.fallback_path(missing, folder=dest),
+      os.path.join(dest, 'a.zip'))
+open(os.path.join(dest, 'a.zip'), 'w').close()
+check('fallback never overwrites a file', downloads.fallback_path(missing, folder=dest), os.path.join(dest, 'a (1).zip'))
+check('default fallback folder exists', os.path.isdir(downloads.fallback_folder()), True)
+check('default fallback folder is used when none is given',
+      os.path.dirname(downloads.fallback_path(missing)), downloads.fallback_folder())
+
 print(f'\n{failures} failure(s)')
 sys.exit(1 if failures else 0)
