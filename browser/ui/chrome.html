@@ -309,6 +309,7 @@ document.addEventListener('keydown', (e) => {
     else if (k === 'f') msg = {ui: 'find'};
     else if (k === 'd') msg = {ui: 'star'};
     else if (k === 'h') msg = {ui: 'library'};
+    else if (k === ',') msg = {ui: 'settings'};
     else if (k === 'l') { focusAddress(); e.preventDefault(); return; }
   } else if (e.altKey && !e.ctrlKey) {
     if (k === 'arrowleft') msg = {ui: 'back'};

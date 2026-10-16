@@ -301,6 +301,8 @@ class App:
             self.toggle_bookmark(tab)
         elif ui == 'library':
             self.show_library()
+        elif ui == 'settings':
+            self.show_settings()
 
     def _anchor(self, rect: dict | None = None):
         """Screen rectangle (device pixels) of a toolbar button, from its CSS-pixel rect in chrome.html."""
