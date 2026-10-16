@@ -300,7 +300,8 @@ small.ver{color:#6c727d}
 
 def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
                   engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
-                  bookmarks_bar: bool = True, update_note: str = '', performance: bool = False) -> str:
+                  bookmarks_bar: bool = True, update_note: str = '', performance: bool = False,
+                  default_ok: bool = False) -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
@@ -348,6 +349,12 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <button class="tog{' on' if update_check else ''}" data-k=update_check aria-label="toggle"></button></div>
 </section>
 
+<section><h2>System</h2>
+<div class=set><div class=txt><div>Default browser</div>
+<small>{'Lite opens links from every app.' if default_ok else 'Links from other apps still open in your current browser. One click registers Lite, then Windows asks you to confirm.'}</small></div>
+<button class="act link" id=setdefault>{'Default browser settings' if default_ok else 'Make Lite the default'}</button></div>
+</section>
+
 <section><h2>About</h2>
 <div class=set><div class=txt><div>Lite <span class=ver>v{version}</span></div>
 <small>A lightweight, privacy-first browser. MIT licensed, open source.</small></div>
@@ -370,6 +377,7 @@ cc.addEventListener('click',()=>{{
     window.chrome.webview.postMessage({{cmd:'clearcookies'}})}}
   else{{cc.classList.add('armed');cc.textContent='Click again to confirm'}}}});
 document.getElementById('rel').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'updates'}}));
+document.getElementById('setdefault').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'setdefault'}}));
 </script></body></html>"""
 
 

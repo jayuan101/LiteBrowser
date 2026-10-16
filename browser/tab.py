@@ -17,7 +17,7 @@ import traceback
 from collections import Counter
 from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 
-from . import filters, guard, pages, privacy, search
+from . import default_browser, filters, guard, pages, privacy, search
 from .scanner import COLLECT_JS
 from .webview2 import (
     Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel,
@@ -251,7 +251,8 @@ class Tab:
                                                s.get('search_engine', 'brave'),
                                                s.get('bookmarks_bar', True),
                                                self.app.update_note,
-                                               s.get('performance_mode', False)))
+                                               s.get('performance_mode', False),
+                                               default_browser.is_default()))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):
@@ -644,6 +645,8 @@ class Tab:
             self.app.clear_cookies_now()
         elif cmd == 'updates':
             self.app.update_now()  # over the air: check, download, restart - never a releases page
+        elif cmd == 'setdefault':
+            self.app.set_default_browser()
         elif cmd == 'update':
             self.app.update_now()
 

@@ -93,6 +93,36 @@ except OSError:
     pass
 check('cache written after a check', updater_json is not None and 'checked' in updater_json)
 
+# ---- default browser registration (throwaway keys, cleaned up) -------------
+import winreg
+from browser import default_browser as db
+
+test_client = r'Software\Clients\StartMenuInternet\LiteTestBrowser'
+test_progid = 'LiteTestBrowser.URL'
+db.register(r'C:\Program Files\Lite\Lite.exe', client_key=test_client, progid=test_progid,
+            registered_as='LiteTestBrowser')
+with winreg.OpenKey(winreg.HKEY_CURRENT_USER, test_client + r'\Capabilities\URLAssociations') as k:
+    http_val, _ = winreg.QueryValueEx(k, 'http')
+    https_val, _ = winreg.QueryValueEx(k, 'https')
+check('default browser: URL associations written', http_val == test_progid and https_val == test_progid)
+with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\RegisteredApplications') as k:
+    target, _ = winreg.QueryValueEx(k, 'LiteTestBrowser')
+check('default browser: registered as an application', target.endswith(r'\Capabilities'))
+with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf'Software\Classes\{test_progid}\shell\open\command') as k:
+    cmd_val, _ = winreg.QueryValueEx(k, None)
+check('default browser: the open command hands over the URL', r'"%1"' in cmd_val)
+check('default browser: is_default answers a bool', isinstance(db.is_default(), bool))
+for key in (test_client + r'\shell\open\command', test_client + r'\shell\open', test_client + r'\shell',
+            test_client + r'\DefaultIcon', test_client + r'\Capabilities\URLAssociations',
+            test_client + r'\Capabilities', test_client,
+            rf'Software\Classes\{test_progid}\shell\open\command', rf'Software\Classes\{test_progid}\shell\open',
+            rf'Software\Classes\{test_progid}\shell', rf'Software\Classes\{test_progid}\DefaultIcon',
+            rf'Software\Classes\{test_progid}'):
+    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\RegisteredApplications', 0, winreg.KEY_SET_VALUE) as k:
+    winreg.DeleteValue(k, 'LiteTestBrowser')
+# cleanup ran to the end without an OSError: the throwaway keys are gone
+
 # a fresh cache entry for a version the app has already become must not bring the banner back
 import json as _json
 with open(cache, 'w', encoding='utf-8') as f:

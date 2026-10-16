@@ -16,7 +16,7 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import filters, guard, importer, privacy, search as search_mod, updater
+from . import default_browser, filters, guard, importer, privacy, search as search_mod, updater
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner
 from .passwords import Passwords
@@ -32,7 +32,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.4'
+APP_VERSION = '0.2.5'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -823,6 +823,16 @@ class App:
         elif key == 'performance_mode':
             self.settings.set(key, bool(value))
             self.apply_performance_mode()
+
+    def set_default_browser(self):
+        """Register Lite with Windows, then the Default apps page asks the user to confirm."""
+        if not getattr(sys, 'frozen', False):
+            return  # a source checkout cannot be a default browser: there is no Lite.exe
+        try:
+            default_browser.register(os.path.abspath(sys.executable))
+            default_browser.open_settings()
+        except OSError:
+            traceback.print_exc()  # registration is a convenience: the browser works either way
 
     def apply_performance_mode(self):
         """Set the renderer memory target of every live tab right away."""

@@ -49,6 +49,9 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   shown on screen and never sent anywhere - Copy user / Copy password only.
 - **Reader mode** (the book button or View menu): an article page re-rendered
   as clean text with no layout, fonts or scripts from the site.
+- **Make Lite the default browser** (Settings > System): registers Lite's
+  http/https handling in one click (no admin needed) and opens Windows'
+  Default apps page on Lite's entry to confirm.
 - **High performance mode** (Settings): every tab tells its renderer to keep
   memory low and background tabs let go of their memory after 5 minutes.
 - **Tab sleeping**: background tabs you have not used for 30 minutes (settable

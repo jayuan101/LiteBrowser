@@ -123,6 +123,10 @@ check('settings page has a bookmarks bar toggle', 'data-k=bookmarks_bar' in st)
 check('settings page has the performance toggle', 'data-k=performance_mode' in st)
 st_perf = pages.settings_html(False, True, 45, False, '0.2.0', performance=True)
 check('performance toggle shows on', '<button class="tog on" data-k=performance_mode' in st_perf)
+check('settings page offers to become the default browser',
+      'Make Lite the default' in st and "cmd:'setdefault'" in st)
+check('settings page knows when Lite is the default',
+      'Lite opens links from every app' in pages.settings_html(False, True, 45, False, '0.2.0', default_ok=True))
 
 with tempfile.TemporaryDirectory(prefix='lite-import-') as d:
     chrome_dir = os.path.join(d, 'Google', 'Chrome', 'Default')
