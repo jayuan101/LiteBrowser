@@ -228,7 +228,7 @@ def drive(app, opts):
         elif action == 'private':
             app.new_tab(None, private=True)
         elif action == 'nav':  # same as typing in the address bar + Enter
-            tab.navigate(lite.to_url(arg))
+            tab.navigate(lite.to_url(arg, app.search_url()))
             tab.webview.Focus()
         elif action == 'js':  # js:CODE, or js:@file.js
             if arg.startswith('@'):

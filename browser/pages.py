@@ -245,10 +245,19 @@ small.ver{color:#6c727d}
 """
 
 
-def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str) -> str:
+def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
+                  engines: list[tuple[str, str]] | None = None, engine: str = 'brave') -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
+    opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
+                   for eid, name in (engines or []))
     return f"""<!doctype html><html><head><meta charset=utf-8><title>Settings</title><style>{SETTINGS_CSS}</style></head>
 <body><div class=wrap><h1>Settings</h1>
+
+<section><h2>Search</h2>
+<div class=set><div class=txt><div>Search engine</div>
+<small>What the address bar and the new tab page use when you type a search.</small></div>
+<select class=min id=engine style="width:150px;text-align:left">{opts}</select></div>
+</section>
 
 <section><h2>Privacy</h2>
 <div class=set><div class=txt><div>Delete cookies of sites I have not starred</div>
@@ -287,6 +296,7 @@ for(const b of document.querySelectorAll('button.tog')){{
 const m=document.getElementById('sleep-min');
 document.querySelector('[data-k=tab_sleep]').addEventListener('click',()=>{{m.disabled=!document.querySelector('[data-k=tab_sleep]').classList.contains('on')}});
 m.addEventListener('change',()=>{{const v=Math.max(1,Math.min(1440,Math.round(+m.value||30)));m.value=v;set('sleep_after_minutes',v)}});
+document.getElementById('engine').addEventListener('change',e=>set('search_engine',e.target.value));
 const cc=document.getElementById('clear-cookies');
 cc.addEventListener('click',()=>{{
   if(cc.classList.contains('armed')){{cc.classList.remove('armed');cc.textContent='Delete all cookies';

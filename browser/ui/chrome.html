@@ -129,7 +129,7 @@ body.private #private-badge { display: flex; }
   <div id="field">
     <div id="site"></div>
     <div id="addr">
-      <input id="address" spellcheck="false" autocomplete="off" placeholder="Search with Brave or type a web address">
+      <input id="address" spellcheck="false" autocomplete="off" placeholder="Search or type a web address">
       <div id="pretty"></div>
     </div>
     <div class="pill" id="private-badge"><svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>Private</div>
@@ -207,6 +207,7 @@ function prettyUrl(url) {
 function render(s) {
   state = s;
   document.body.classList.toggle('private', !!s.private);
+  if (s.engine) $('address').placeholder = `Search with ${s.engine} or type a web address`;
   const strip = $('tabs');
   const wanted = s.tabs.map(tabEl);
   wanted.forEach((el, i) => { if (strip.children[i] !== el) strip.insertBefore(el, strip.children[i] || null); });

@@ -32,7 +32,7 @@ AD_PAGE = ('{host} is an ad or tracking server, not a normal website. Ads and tr
            'servers like this before sending you on to the real page.')
 
 
-def to_url(text: str) -> str:
+def to_url(text: str, search_url: str = SEARCH_URL) -> str:
     text = text.strip()
     if not text:
         return 'about:blank'
@@ -42,7 +42,7 @@ def to_url(text: str) -> str:
     looks_like_host = ' ' not in text and ('.' in text or text.startswith('localhost'))
     if looks_like_host:
         return 'https://' + text
-    return SEARCH_URL + quote_plus(text)
+    return search_url + quote_plus(text)
 
 
 def _host(url: str) -> str:
@@ -231,7 +231,9 @@ class Tab:
         s = self.app.settings
         self._show_builtin(pages.settings_html(s.get('auto_delete_cookies', True), s.get('tab_sleep', True),
                                                int(s.get('sleep_after_minutes', 30)), s.get('update_check', True),
-                                               self.app.version))
+                                               self.app.version,
+                                               [(eid, name) for eid, (name, _) in self.app.SEARCH_ENGINES.items()],
+                                               s.get('search_engine', 'brave')))
         self.app.refresh_chrome(self)
 
     def show_reader(self, article: dict):
@@ -565,7 +567,7 @@ class Tab:
             return  # commands only come from Lite's own pages - never from a website
         cmd = msg.get('cmd')
         if cmd == 'go':
-            self.navigate(to_url(str(msg.get('q', ''))))
+            self.navigate(to_url(str(msg.get('q', '')), self.app.search_url()))
         elif cmd == 'back':
             if self.webview.CanGoBack:
                 self.webview.GoBack()

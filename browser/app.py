@@ -30,6 +30,15 @@ from .webview2 import (
 
 APP_NAME = 'Lite'
 APP_VERSION = '0.2.0'
+
+SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
+    'brave': ('Brave', 'https://search.brave.com/search?q='),
+    'duckduckgo': ('DuckDuckGo', 'https://duckduckgo.com/?q='),
+    'google': ('Google', 'https://www.google.com/search?q='),
+    'bing': ('Bing', 'https://www.bing.com/search?q='),
+    'startpage': ('Startpage', 'https://www.startpage.com/sp/search?query='),
+    'ecosia': ('Ecosia', 'https://www.ecosia.org/search?q='),
+}
 # Project folder, or the bundle folder when packaged with PyInstaller (packaging/lite.spec).
 ROOT = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 DATA_DIR = os.path.join(os.environ.get('LOCALAPPDATA', ROOT), 'LiteBrowser')
@@ -110,6 +119,7 @@ def _words(name: str) -> str:
 
 class App:
     version = APP_VERSION
+    SEARCH_ENGINES = SEARCH_ENGINES  # settings page reads it off the instance
 
     def __init__(self, start_urls: list[str]):
         self.name = APP_NAME
@@ -267,7 +277,7 @@ class App:
         elif tab is None:
             return
         elif ui == 'go':
-            tab.navigate(to_url(str(msg.get('text', ''))))
+            tab.navigate(to_url(str(msg.get('text', '')), self.search_url()))
             tab.webview.Focus()
         elif ui == 'escape':
             tab.webview.Focus()
@@ -345,6 +355,7 @@ class App:
             'canForward': bool(tab and tab.webview.CanGoForward),
             'loading': bool(tab and tab.loading),
             'starred': bool(tab and on_site and self.bookmarks.is_starred(tab.url)),
+            'engine': SEARCH_ENGINES.get(self.settings.get('search_engine', 'brave'), SEARCH_ENGINES['brave'])[0],
             'reader': bool(tab and (on_site or tab.reader_source)),
             'reading': bool(tab and tab.reader_source),
             'shields': {'show': on_site, 'up': on_site and self.blocker.shields_up(tab.host),
@@ -719,6 +730,9 @@ class App:
         url, _title = self.closed.pop()
         self.new_tab(url)
 
+    def search_url(self) -> str:
+        return SEARCH_ENGINES.get(self.settings.get('search_engine', 'brave'), SEARCH_ENGINES['brave'])[1]
+
     def toggle_pin(self, tab: Tab | None):
         if tab is not None and not tab.builtin:
             tab.toggle_pin()
@@ -735,6 +749,9 @@ class App:
             self.settings.set(key, max(1, min(1440, int(value or 30))))
         elif key == 'update_check':
             self.settings.set(key, bool(value))
+        elif key == 'search_engine' and value in SEARCH_ENGINES:
+            self.settings.set(key, str(value))
+            self.refresh_chrome()  # the address bar placeholder names the engine
 
     def clear_cookies_now(self):
         """Wipe every cookie, starred sites included - the settings page's explicit button."""
@@ -839,7 +856,7 @@ class App:
         return next((t for t in self.tabs if t.id == tab_id), None)
 
     def new_tab(self, url: str | None, private: bool = False):
-        tab = Tab(self, to_url(url) if url else None, private)
+        tab = Tab(self, to_url(url, self.search_url()) if url else None, private)
         self.tabs.append(tab)
         self.select(tab)
 
