@@ -8,6 +8,7 @@ browser process tree, which is what keeps memory far below a full Chromium bundl
 import ctypes
 import json
 import os
+import sys
 import subprocess
 import threading
 import time
@@ -27,9 +28,11 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+# Project folder, or the bundle folder when packaged with PyInstaller (packaging/lite.spec).
+ROOT = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 DATA_DIR = os.path.join(os.environ.get('LOCALAPPDATA', ROOT), 'LiteBrowser')
-UI_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'ui')
+UI_DIR = os.path.join(ROOT, 'browser', 'ui')
+ICON_FILE = os.path.join(ROOT, 'packaging', 'lite.ico')
 CHROME_HEIGHT = 85  # CSS pixels: 38 tab strip + 46 toolbar + 1 border
 STRIP = (22, 24, 29)  # tab strip colour, also used for the Windows title bar
 
@@ -67,7 +70,12 @@ def _dwm(hwnd: int, attr: int, value: int) -> None:
 
 
 def _app_icon():
-    """An orange shield with a check mark, drawn at start-up so there is no icon file to ship."""
+    """An orange shield with a check mark: packaging/lite.ico when present, else drawn at start-up."""
+    if os.path.exists(ICON_FILE):
+        try:
+            return Drawing.Icon(ICON_FILE)
+        except Exception:
+            pass
     bmp = Drawing.Bitmap(64, 64)
     g = Drawing.Graphics.FromImage(bmp)
     g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias

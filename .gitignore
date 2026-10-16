@@ -16,6 +16,7 @@ dist/
 !/main.py
 !/README.md
 !/LICENSE
+!/SECURITY.md
 !/config.json
 !/blocklist.txt
 !/browser/

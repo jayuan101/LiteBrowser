@@ -27,10 +27,19 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **New tab page** with a clock and running totals. Lite never shows ads or
   sponsored content of its own.
 
-## Running it
+## Download
 
-Requirements: Windows 10/11 with the WebView2 runtime (ships with Windows 11
-and Edge), Python 3.12+.
+Grab `Lite-windows-x64.zip` from the
+[latest release](https://github.com/jayuan101/LiteBrowser/releases/latest),
+unzip it anywhere and run `Lite.exe`. No Python needed. Windows 10/11 with the
+WebView2 runtime (ships with Windows 11 and Edge) is required.
+
+Windows SmartScreen may warn on first run because the build is not code-signed;
+choose "More info" > "Run anyway".
+
+## Running from source
+
+Python 3.12+:
 
 ```
 pip install pythonnet pywebview adblock
@@ -38,6 +47,16 @@ python main.py [url ...]
 ```
 
 Without the `adblock` package Lite falls back to a short built-in blocklist.
+
+## Building the app
+
+```
+pip install pyinstaller pillow
+.\packaging\build.ps1
+```
+
+This draws `packaging/lite.ico`, runs PyInstaller with `packaging/lite.spec`
+and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 
 ## Layout
 
@@ -53,6 +72,7 @@ Without the `adblock` package Lite falls back to a short built-in blocklist.
 | `browser/scanner.py` | Optional Claude page scan |
 | `browser/pages.py` | Built-in new tab and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |
+| `packaging/` | Icon generator, PyInstaller spec and build script for the downloadable app |
 | `scratch/` | Tests (`test_*.py`) and `drive.py`, a scripted driver for the real browser |
 
 Run the tests with `python scratch/test_filters.py` (and the other `test_*.py`).
