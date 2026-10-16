@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import subprocess
+import tempfile
 import threading
 import time
 import traceback
@@ -30,7 +31,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.0'
+APP_VERSION = '0.2.1'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -141,6 +142,7 @@ class App:
         self.import_note = ''  # result of the last bookmark/password import, shown on the library page
         self.antivirus = AntivirusScanner()
         self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
+        self.update_state: dict = {'phase': 'idle'}  # idle -> downloading -> ready (restart to install)
         self.https_only = self.config.get('https_only', True)
         # Fingerprinting keys: new every start, and private tabs use their own so a site cannot
         # match a private visit to a normal one.
@@ -846,9 +848,81 @@ class App:
 
     def _use_update_banner(self, banner: dict):
         self.update_banner = banner
+        self._refresh_update_pages()
+
+    def _refresh_update_pages(self):
+        """The banner on every open new tab page reflects the update's phase."""
         for t in list(self.tabs):
             if t.builtin and not t.url and not t.pending_url:
-                t.show_new_tab()  # open new tab pages pick up the banner
+                t.show_new_tab()
+
+    def update_now(self):
+        """The banner button: download the new release, then restart to install it."""
+        if not getattr(sys, 'frozen', False):  # running from source: updates live on GitHub
+            self.new_tab(updater.RELEASES_URL)
+            return
+        if self.update_state['phase'] == 'downloading':
+            return
+        if self.update_state['phase'] == 'ready':
+            self._install_update()
+            return
+        if not self.update_banner:  # pressed before the daily check: look right now
+            update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION, force=True)
+            if not update:
+                return
+            self._use_update_banner(update)
+        self.update_state = {'phase': 'downloading'}
+        self._refresh_update_pages()
+        threading.Thread(target=self._download_update, daemon=True).start()
+
+    def _download_update(self):
+        """Worker thread: fetch the release zip and unpack it next to nothing important."""
+        try:
+            url = updater.asset_url(self.update_banner['tag'])
+            if not url:
+                raise FileNotFoundError('the release has no Lite-windows-x64.zip asset')
+            folder = updater.unpack(updater.download(url))
+            state = {'phase': 'ready', 'folder': folder}
+        except Exception:
+            traceback.print_exc()
+            state = {'phase': 'idle'}  # the banner goes back to inviting a retry
+        self.update_state = state
+        self.later(self._refresh_update_pages)
+
+    def _install_update(self):
+        """Exit, then a detached script swaps the extracted release over this folder and restarts Lite."""
+        folder = self.update_state.get('folder')
+        if not folder or not os.path.isfile(os.path.join(folder, 'Lite.exe')):
+            return
+        pid, target = os.getpid(), os.path.dirname(os.path.abspath(sys.executable))
+        script = os.path.join(tempfile.gettempdir(), f'Lite-update-{pid}.cmd')
+        download_dir = os.path.dirname(os.path.abspath(folder))
+        with open(script, 'w', encoding='ascii') as f:
+            # ping is the delay because "timeout" aborts a batch that has no console to read.
+            # The copy is the wait: this folder is locked while Lite runs, so xcopy only
+            # succeeds once the app has exited. Retry for up to 5 minutes, then give up.
+            f.write(f'''@echo off\r
+setlocal EnableDelayedExpansion\r
+set /a tries=0\r
+:wait\r
+xcopy /E /Y /I "{folder}" "{target}" >nul 2>&1\r
+if errorlevel 1 (\r
+  ping -n 2 127.0.0.1 >nul\r
+  set /a tries+=1\r
+  if !tries! LSS 300 goto wait\r
+  exit\r
+)\r
+start "" "{target}\\Lite.exe"\r
+rd /s /q "{download_dir}"\r
+del "%~f0"\r''')
+        DETACHED, BREAKAWAY = 0x00000008, 0x01000000  # DETACHED_PROCESS; leave any job that would kill children
+        try:
+            subprocess.Popen(['cmd', '/c', script], creationflags=DETACHED | BREAKAWAY, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            subprocess.Popen(['cmd', '/c', script], creationflags=DETACHED, close_fds=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.form.Close()
 
     def _sleep_check(self):
         if not self.settings.get('tab_sleep', True):

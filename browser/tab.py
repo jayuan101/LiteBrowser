@@ -207,6 +207,7 @@ class Tab:
         self._show_builtin(pages.new_tab_html(self.app.stats.counts, self.app.stats.since,
                                               self.app.filters_text(short=True), self.private,
                                               banner=self.app.update_banner,
+                                              update=self.app.update_state,
                                               engine=self.app.SEARCH_ENGINES.get(
                                                   self.app.settings.get('search_engine', 'brave'),
                                                   ('Brave', ''))[0]))
@@ -636,9 +637,12 @@ class Tab:
         elif cmd == 'clearcookies':
             self.app.clear_cookies_now()
         elif cmd == 'updates':
-            self.app.new_tab(updater.RELEASES_URL)
-        elif cmd == 'update' and self.app.update_banner:
-            self.app.new_tab(self.app.update_banner['url'])
+            if self.app.update_banner:  # the settings button installs a known update right away
+                self.app.update_now()
+            else:
+                self.app.new_tab(updater.RELEASES_URL)
+        elif cmd == 'update':
+            self.app.update_now()
 
     def _on_cosmetic_message(self, msg: dict):
         """The page's cosmetic script asks for its hide rules, then for rules matching new class names/ids."""

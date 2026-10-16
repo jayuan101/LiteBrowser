@@ -52,7 +52,9 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Tab sleeping**: background tabs you have not used for 30 minutes (settable
   in settings) release their memory and reload when you come back to them.
 - **Update check**: Lite checks GitHub releases at start and quietly shows a
-  banner when a newer version is out. It never auto-installs anything.
+  banner when a newer version is out. One click on the banner downloads the
+  new build and restarts Lite into it - the swap happens right after the app
+  closes, and a Check button in Settings looks for an update on demand.
 - **Safety.** Known malware and scam sites get a warning page before anything
   loads; downloads from known malware links are stopped; program files ask
   "Download anyway?"; every finished download is scanned by the antivirus

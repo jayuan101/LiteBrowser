@@ -52,7 +52,7 @@ background:#1c1f25;border:1px solid #2b2f37;border-radius:27px;box-shadow:0 12px
 
 
 def new_tab_html(counts: dict | None = None, since: str = '', lists: str = '', private: bool = False,
-                 banner: dict | None = None, engine: str = 'Brave') -> str:
+                 banner: dict | None = None, engine: str = 'Brave', update: dict | None = None) -> str:
     counts = counts or {}
     accent, ring, glow, glow2 = (('#a07bff', '#a07bff33', '#5b3fb855', '#a07bff22') if private else
                                  ('#fb542b', '#fb542b29', '#3a1f4d55', '#fb542b1f'))
@@ -79,8 +79,16 @@ Lite never shows ads, sponsored tiles or sponsored images.</div>"""
     css = css.replace('var(--glow2)', glow2).replace('var(--glow)', glow)
     banner_html = ''
     if banner:
-        banner_html = (f'<div class=banner role=button id=banner><b>{escape(banner.get("name") or banner["tag"])}'
-                       f'</b> is available<span>Click to open the download page</span></div>')
+        phase = (update or {}).get('phase', 'idle')
+        if phase == 'downloading':
+            banner_html = ('<div class=banner><b>Downloading the update&hellip;</b>'
+                           '<span>Lite restarts to install it when the download is done</span></div>')
+        elif phase == 'ready':
+            banner_html = (f'<div class=banner role=button id=banner><b>Update downloaded</b>'
+                           f'<span>Click to restart and install {escape(banner.get("name") or banner["tag"])}</span></div>')
+        else:
+            banner_html = (f'<div class=banner role=button id=banner><b>{escape(banner.get("name") or banner["tag"])}'
+                           f'</b> is available<span>Click to download and install it</span></div>')
         css += """.banner{margin:0 0 26px;padding:12px 22px;border-radius:14px;cursor:pointer;text-align:center;
 background:#1c1f25;border:1px solid #2b2f37;color:#eceef2;font-size:14px}
 .banner b{color:var(--accent2)}
@@ -328,7 +336,7 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 
 <section><h2>Updates</h2>
 <div class=set><div class=txt><div>Check for updates at start</div>
-<small>Lite looks at GitHub releases and tells you quietly - it never installs anything by itself.</small></div>
+<small>Lite looks at GitHub releases and tells you quietly on the new tab page, where one click downloads and installs the update.</small></div>
 <button class="tog{' on' if update_check else ''}" data-k=update_check aria-label="toggle"></button></div>
 </section>
 
