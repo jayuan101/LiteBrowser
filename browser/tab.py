@@ -20,7 +20,8 @@ from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 from . import filters, guard, pages, privacy, search
 from .scanner import COLLECT_JS
 from .webview2 import (
-    Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2WebResourceContext,
+    Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel,
+    CoreWebView2WebResourceContext,
     Drawing, Keys, MemoryStream, Stream, String, System, Task, TaskScheduler, WebView2, WinForms,
 )
 
@@ -144,6 +145,8 @@ class Tab:
         s.IsPasswordAutosaveEnabled = False
         s.IsGeneralAutofillEnabled = False
         s.UserAgent = _trim_user_agent(s.UserAgent)
+        if self.app.settings.get('performance_mode'):
+            core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low
 
         core.DocumentTitleChanged += self._on_title_changed
         core.NewWindowRequested += self._on_new_window
@@ -247,7 +250,8 @@ class Tab:
                                                [(eid, name) for eid, (name, _) in self.app.SEARCH_ENGINES.items()],
                                                s.get('search_engine', 'brave'),
                                                s.get('bookmarks_bar', True),
-                                               self.app.update_note))
+                                               self.app.update_note,
+                                               s.get('performance_mode', False)))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):

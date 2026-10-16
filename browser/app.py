@@ -26,12 +26,13 @@ from .stats import Stats
 from .store import Bookmarks, History, Settings, host_keeps_cookie
 from .tab import Tab, to_url
 from .webview2 import (
-    Action, ApartmentState, CoreWebView2CreationProperties, CoreWebView2PrintDialogKind, Drawing, Drawing2D,
+    Action, ApartmentState, CoreWebView2CreationProperties, CoreWebView2MemoryUsageTargetLevel,
+    CoreWebView2PrintDialogKind, Drawing, Drawing2D,
     System, Task, TaskScheduler, Thread, ThreadStart, WebView2, WinForms,
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.3'
+APP_VERSION = '0.2.4'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -819,6 +820,18 @@ class App:
             self.settings.set(key, bool(value))
             self._size_chrome()  # the tab area grows or shrinks with the bar
             self.refresh_chrome()
+        elif key == 'performance_mode':
+            self.settings.set(key, bool(value))
+            self.apply_performance_mode()
+
+    def apply_performance_mode(self):
+        """Set the renderer memory target of every live tab right away."""
+        low = self.settings.get('performance_mode', False)
+        for t in list(self.tabs):
+            core = t.webview.CoreWebView2
+            if core is not None:
+                core.MemoryUsageTargetLevel = (CoreWebView2MemoryUsageTargetLevel.Low if low
+                                               else CoreWebView2MemoryUsageTargetLevel.Normal)
 
     def clear_cookies_now(self):
         """Wipe every cookie, starred sites included - the settings page's explicit button."""
@@ -943,7 +956,10 @@ del "%~f0"\r''')
     def _sleep_check(self):
         if not self.settings.get('tab_sleep', True):
             return
-        limit = int(self.settings.get('sleep_after_minutes', 30)) * 60
+        minutes = int(self.settings.get('sleep_after_minutes', 30))
+        if self.settings.get('performance_mode'):  # high performance: background tabs let go in 5 minutes
+            minutes = min(minutes, 5)
+        limit = minutes * 60
         now = time.time()
         for t in self.tabs:
             if t is not self.active and t.sleepable() and now - t.last_active > limit:

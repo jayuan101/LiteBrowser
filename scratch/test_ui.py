@@ -120,6 +120,9 @@ check('passwords page shows hosts and users but never secrets',
       's.example' in pw and 'ann' in pw and 'S3cret!' not in pw and 'Copy password' in pw)
 st = pages.settings_html(False, True, 45, False, '0.2.0', bookmarks_bar=True)
 check('settings page has a bookmarks bar toggle', 'data-k=bookmarks_bar' in st)
+check('settings page has the performance toggle', 'data-k=performance_mode' in st)
+st_perf = pages.settings_html(False, True, 45, False, '0.2.0', performance=True)
+check('performance toggle shows on', '<button class="tog on" data-k=performance_mode' in st_perf)
 
 with tempfile.TemporaryDirectory(prefix='lite-import-') as d:
     chrome_dir = os.path.join(d, 'Google', 'Chrome', 'Default')

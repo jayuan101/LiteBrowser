@@ -41,13 +41,14 @@ from System.Threading.Tasks import Task, TaskScheduler  # noqa: E402
 from System.Windows.Forms import Keys  # noqa: E402
 
 from Microsoft.Web.WebView2.Core import (  # noqa: E402
-    CoreWebView2FaviconImageFormat, CoreWebView2PrintDialogKind, CoreWebView2WebResourceContext,
+    CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel, CoreWebView2PrintDialogKind,
+    CoreWebView2WebResourceContext,
 )
 from Microsoft.Web.WebView2.WinForms import CoreWebView2CreationProperties, WebView2  # noqa: E402
 
 __all__ = [
     'System', 'Drawing', 'Drawing2D', 'WinForms', 'Action', 'Func', 'Object', 'String', 'Uri', 'MemoryStream',
     'Stream', 'ApartmentState', 'Thread', 'ThreadStart', 'Task', 'TaskScheduler', 'Keys',
-    'CoreWebView2FaviconImageFormat', 'CoreWebView2PrintDialogKind', 'CoreWebView2WebResourceContext',
-    'CoreWebView2CreationProperties', 'WebView2',
+    'CoreWebView2FaviconImageFormat', 'CoreWebView2MemoryUsageTargetLevel', 'CoreWebView2PrintDialogKind',
+    'CoreWebView2WebResourceContext', 'CoreWebView2CreationProperties', 'WebView2',
 ]

@@ -300,7 +300,7 @@ small.ver{color:#6c727d}
 
 def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
                   engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
-                  bookmarks_bar: bool = True, update_note: str = '') -> str:
+                  bookmarks_bar: bool = True, update_note: str = '', performance: bool = False) -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
@@ -328,6 +328,12 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <button class="tog{' on' if tab_sleep else ''}" data-k=tab_sleep aria-label="toggle"></button></div>
 <div class=set><div class=txt><div>Sleep after</div><small>How long a background tab stays awake.</small></div>
 <input class=min id=sleep-min type=number min=1 max=1440 value={max(1, min(1440, sleep_minutes))}></div>
+</section>
+
+<section><h2>Performance</h2>
+<div class=set><div class=txt><div>High performance mode</div>
+<small>Every tab tells its renderer to keep memory low, and background tabs let go of their memory after 5 minutes. Browsing speed is the same - pages are already ad-free.</small></div>
+<button class="tog{' on' if performance else ''}" data-k=performance_mode aria-label="toggle"></button></div>
 </section>
 
 <section><h2>Bookmarks</h2>
