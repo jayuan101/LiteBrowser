@@ -52,7 +52,8 @@ background:#1c1f25;border:1px solid #2b2f37;border-radius:27px;box-shadow:0 12px
 
 
 def new_tab_html(counts: dict | None = None, since: str = '', lists: str = '', private: bool = False,
-                 banner: dict | None = None, engine: str = 'Brave', update: dict | None = None) -> str:
+                 banner: dict | None = None, engine: str = 'Brave', update: dict | None = None,
+                 version: str = '') -> str:
     counts = counts or {}
     accent, ring, glow, glow2 = (('#a07bff', '#a07bff33', '#5b3fb855', '#a07bff22') if private else
                                  ('#fb542b', '#fb542b29', '#3a1f4d55', '#fb542b1f'))
@@ -73,7 +74,7 @@ Shields choices made here are not saved, and the page check is off.</p>
 <div class="stat g"><div class=n>{counts.get('links', 0):,}</div><div class=l>Tracking links cleaned</div></div>
 <div class="stat p"><div class=n>{stopped:,}</div><div class=l>Pop-ups &amp; malware pages stopped</div></div>
 </div><div class=foot>Counting since {escape(since_text)}{' &middot; ' + escape(lists) if lists else ''}<br>
-Lite never shows ads, sponsored tiles or sponsored images.</div>"""
+Lite {escape(version)} &middot; never shows ads, sponsored tiles or sponsored images.</div>"""
         title = 'New tab'
     css = _NEW_TAB_CSS.replace('var(--accent)', accent).replace('var(--ring)', ring)
     css = css.replace('var(--glow2)', glow2).replace('var(--glow)', glow)

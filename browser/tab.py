@@ -208,6 +208,7 @@ class Tab:
                                               self.app.filters_text(short=True), self.private,
                                               banner=self.app.update_banner,
                                               update=self.app.update_state,
+                                              version=self.app.version,
                                               engine=self.app.SEARCH_ENGINES.get(
                                                   self.app.settings.get('search_engine', 'brave'),
                                                   ('Brave', ''))[0]))
