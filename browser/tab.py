@@ -17,7 +17,7 @@ import traceback
 from collections import Counter
 from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 
-from . import filters, guard, pages, privacy, search, updater
+from . import filters, guard, pages, privacy, search
 from .scanner import COLLECT_JS
 from .webview2 import (
     Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2WebResourceContext,
@@ -246,7 +246,8 @@ class Tab:
                                                self.app.version,
                                                [(eid, name) for eid, (name, _) in self.app.SEARCH_ENGINES.items()],
                                                s.get('search_engine', 'brave'),
-                                               s.get('bookmarks_bar', True)))
+                                               s.get('bookmarks_bar', True),
+                                               self.app.update_note))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):
@@ -638,10 +639,7 @@ class Tab:
         elif cmd == 'clearcookies':
             self.app.clear_cookies_now()
         elif cmd == 'updates':
-            if self.app.update_banner:  # the settings button installs a known update right away
-                self.app.update_now()
-            else:
-                self.app.new_tab(updater.RELEASES_URL)
+            self.app.update_now()  # over the air: check, download, restart - never a releases page
         elif cmd == 'update':
             self.app.update_now()
 

@@ -31,7 +31,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.1'
+APP_VERSION = '0.2.2'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -143,6 +143,7 @@ class App:
         self.antivirus = AntivirusScanner()
         self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
         self.update_state: dict = {'phase': 'idle'}  # idle -> downloading -> ready (restart to install)
+        self.update_note = ''  # the settings Check button's answer, e.g. "You're up to date"
         self.https_only = self.config.get('https_only', True)
         # Fingerprinting keys: new every start, and private tabs use their own so a site cannot
         # match a private visit to a normal one.
@@ -848,7 +849,11 @@ class App:
 
     def _use_update_banner(self, banner: dict):
         self.update_banner = banner
+        self.update_note = ''  # the answer on the settings page is about to change
         self._refresh_update_pages()
+        # over the air: a known update downloads in the background without being asked
+        if getattr(sys, 'frozen', False) and self.update_state['phase'] == 'idle':
+            self._start_download()
 
     def _refresh_update_pages(self):
         """The banner on every open new tab page reflects the update's phase."""
@@ -856,11 +861,21 @@ class App:
             if t.builtin and not t.url and not t.pending_url:
                 t.show_new_tab()
 
+    def _refresh_settings_pages(self):
+        """Open settings pages pick up the Check button's answer."""
+        for t in list(self.tabs):
+            if t.builtin and t.title == 'Settings':
+                t.show_settings()
+
+    def _start_download(self):
+        self.update_state = {'phase': 'downloading'}
+        self._refresh_update_pages()
+        threading.Thread(target=self._download_update, daemon=True).start()
+
     def update_now(self):
-        """The banner button: download the new release, then restart to install it."""
-        if not getattr(sys, 'frozen', False):  # running from source: updates live on GitHub
-            self.new_tab(updater.RELEASES_URL)
-            return
+        """The restart button, or the settings Check: keep the over-the-air flow moving."""
+        if not getattr(sys, 'frozen', False):
+            return  # running from source: a checkout updates with git, not over the air
         if self.update_state['phase'] == 'downloading':
             return
         if self.update_state['phase'] == 'ready':
@@ -869,11 +884,12 @@ class App:
         if not self.update_banner:  # pressed before the daily check: look right now
             update = updater.check(os.path.join(self.data_dir, 'update_check.json'), APP_VERSION, force=True)
             if not update:
+                self.update_note = f'You are up to date - Lite {APP_VERSION} is the newest release.'
+                self._refresh_settings_pages()
                 return
-            self._use_update_banner(update)
-        self.update_state = {'phase': 'downloading'}
-        self._refresh_update_pages()
-        threading.Thread(target=self._download_update, daemon=True).start()
+            self._use_update_banner(update)  # starts the background download
+        else:
+            self._start_download()  # a failed download: the buttons try again
 
     def _download_update(self):
         """Worker thread: fetch the release zip and unpack it next to nothing important."""

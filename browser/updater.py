@@ -13,7 +13,6 @@ import zipfile
 
 API = 'https://api.github.com/repos/jayuan101/LiteBrowser/releases/latest'
 ASSET_API = 'https://api.github.com/repos/jayuan101/LiteBrowser/releases/tags/{}'
-RELEASES_URL = 'https://github.com/jayuan101/LiteBrowser/releases'
 ASSET = 'Lite-windows-x64.zip'
 DAY = 24 * 3600
 

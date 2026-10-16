@@ -82,14 +82,15 @@ Lite {escape(version)} &middot; never shows ads, sponsored tiles or sponsored im
     if banner:
         phase = (update or {}).get('phase', 'idle')
         if phase == 'downloading':
-            banner_html = ('<div class=banner><b>Downloading the update&hellip;</b>'
-                           '<span>Lite restarts to install it when the download is done</span></div>')
+            banner_html = ('<div class=banner><b>Updating in the background&hellip;</b>'
+                           '<span>Lite asks you to restart once the new version is ready</span></div>')
         elif phase == 'ready':
-            banner_html = (f'<div class=banner role=button id=banner><b>Update downloaded</b>'
-                           f'<span>Click to restart and install {escape(banner.get("name") or banner["tag"])}</span></div>')
+            banner_html = (f'<div class=banner role=button id=banner><b>Restart to update to '
+                           f'{escape(banner.get("name") or banner["tag"])}</b>'
+                           f'<span>The new version is downloaded - click and Lite restarts into it</span></div>')
         else:
-            banner_html = (f'<div class=banner role=button id=banner><b>{escape(banner.get("name") or banner["tag"])}'
-                           f'</b> is available<span>Click to download and install it</span></div>')
+            banner_html = ('<div class=banner role=button id=banner><b>Couldn\'t download the update</b>'
+                           '<span>Click to try again</span></div>')
         css += """.banner{margin:0 0 26px;padding:12px 22px;border-radius:14px;cursor:pointer;text-align:center;
 background:#1c1f25;border:1px solid #2b2f37;color:#eceef2;font-size:14px}
 .banner b{color:var(--accent2)}
@@ -299,7 +300,7 @@ small.ver{color:#6c727d}
 
 def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
                   engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
-                  bookmarks_bar: bool = True) -> str:
+                  bookmarks_bar: bool = True, update_note: str = '') -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
@@ -336,8 +337,8 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 </section>
 
 <section><h2>Updates</h2>
-<div class=set><div class=txt><div>Check for updates at start</div>
-<small>Lite looks at GitHub releases and tells you quietly on the new tab page, where one click downloads and installs the update.</small></div>
+<div class=set><div class=txt><div>Update Lite automatically</div>
+<small>Lite checks GitHub for a newer release, downloads it in the background and asks you to restart once to install - like a real browser. Nothing opens and nothing to visit.</small></div>
 <button class="tog{' on' if update_check else ''}" data-k=update_check aria-label="toggle"></button></div>
 </section>
 
@@ -345,6 +346,7 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <div class=set><div class=txt><div>Lite <span class=ver>v{version}</span></div>
 <small>A lightweight, privacy-first browser. MIT licensed, open source.</small></div>
 <button class="act link" id=rel>Check for updates</button></div>
+{'<div class=set><small>' + escape(update_note) + '</small></div>' if update_note else ''}
 </section>
 
 </div>

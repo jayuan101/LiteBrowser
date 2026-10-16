@@ -88,8 +88,14 @@ html = pages.new_tab_html(counts, '2026-10-15', 'lists', version='0.2.1')
 check('new tab page shows the totals', all(s in html for s in ('12,345', '>87<', '>3<', 'Oct 15, 2026')), html[:200])
 check('new tab page shows the version', 'Lite 0.2.1' in html)
 check('new tab page promises no sponsored content', 'never shows ads, sponsored' in html)
-banner = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'})
-check('update banner renders and links', 'Lite 0.3.0' in banner and "cmd:'update'" in banner)
+ready = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'},
+                           update={'phase': 'ready'})
+check('ready banner asks for a restart and links', 'Restart to update to Lite 0.3.0' in ready and "cmd:'update'" in ready)
+downloading = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'},
+                                 update={'phase': 'downloading'})
+check('downloading banner is not clickable', 'Updating in the background' in downloading and 'id=banner' not in downloading)
+failed = pages.new_tab_html(counts, '2026-10-15', '', banner={'tag': 'v0.3.0', 'name': 'Lite 0.3.0', 'url': 'u'})
+check('failed download invites a retry', "Couldn't download the update" in failed and "cmd:'update'" in failed)
 check('no banner by default', 'class=banner' not in html)
 st = pages.settings_html(False, True, 45, False, '0.2.0')
 check('settings page shows the stored values',
@@ -97,6 +103,9 @@ check('settings page shows the stored values',
       and '<button class="tog on" data-k=tab_sleep' in st,
       st[:200])
 check('settings page sends changes back', all(s in st for s in ("cmd:'settings'", "cmd:'clearcookies'", "cmd:'updates'")))
+check('settings page shows the check answer',
+      'You are up to date' in pages.settings_html(False, True, 45, False, '0.2.0', update_note='You are up to date - Lite 0.2.0 is the newest release.')
+      and 'You are up to date' not in st)
 sr = pages.search_results_html('q "<x>', [{'title': 'T', 'url': 'https://x.example/', 'snippet': 's'}])
 check('search page escapes the query and rows', '"<x>' not in sr and 'Searching' not in sr)
 check('search page has a waiting state while fetching', 'Searching' in pages.search_results_html('q', None))
