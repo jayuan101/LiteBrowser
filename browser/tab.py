@@ -100,12 +100,14 @@ class Tab:
         self.audible = self.muted = False
         self.builtin = True  # showing one of Lite's own pages (new tab, warning)
         self.showing_block_page = False
-        self.blocked = self.popups = self.links = self._links_pending = 0
+        self.blocked = self.popups = self.links = self.fingerprints = self._links_pending = 0
         self.blocked_hosts: Counter = Counter()
         self.scan_state = 'local'
         self.scan_reason = ''
         self.scan_token = 0
         self.site_scripts: dict[str, str | None] = {}  # host -> registered script id (None while registering)
+        self.fp_js = privacy.fingerprint_js(app.fp_keys[private])
+        self.fp_script: str | None = None  # id of the registered fingerprinting script; None while Shields are down
         self.denied: dict[str, float] = {}  # pages Lite cancelled -> when; their request is answered locally
         self.cosmetic = None  # (token, exceptions) while generic cosmetic rules apply to the page
         self.scheduler = TaskScheduler.FromCurrentSynchronizationContext()
@@ -151,7 +153,8 @@ class Tab:
             else:
                 self.show_new_tab()
         core.AddScriptToExecuteOnDocumentCreatedAsync(filters.COSMETIC_JS).ContinueWith(
-            Action[Task[String]](start), self.scheduler)
+            Action[Task[String]](lambda task: self._set_fingerprinting(True, then=lambda: start(task))),
+            self.scheduler)
 
     def dispose(self):
         try:
@@ -172,7 +175,7 @@ class Tab:
         self.builtin = True
         self.loading = False
         self.host = ''
-        self.blocked = self.popups = self.links = 0
+        self.blocked = self.popups = self.links = self.fingerprints = 0
         self.blocked_hosts.clear()
         self.webview.CoreWebView2.NavigateToString(html)
 
@@ -229,25 +232,36 @@ class Tab:
                 app.https_attempted[host] = url
                 return stop(lambda: self.navigate('https://' + url[len('http://'):]))
 
-        if app.blocker.shields_up(host) and not args.RequestHeaders.Contains('Content-Type'):  # not a form POST
-            clean = privacy.strip_tracking(url)
+        up = app.blocker.shields_up(host)
+        if not args.RequestHeaders.Contains('Content-Type'):  # not a form POST, so it can be re-opened
+            clean = privacy.strip_tracking(url) if up else url
             if clean != url:
                 self._links_pending += 1
                 app.stats.add('links')
                 if url in app.allowed_once:
                     app.allowed_once.add(clean)
                 return stop(lambda: self.navigate(clean))
-            if str(args.NavigationKind) != 'BackOrForward' and self._needs_site_script(host):
+            # Start-up scripts (this site's scriptlets, fingerprinting protection on or off) must
+            # be in place before the navigation begins: register them, then open the page again.
+            if str(args.NavigationKind) != 'BackOrForward' and (
+                    up != (self.fp_script is not None) or (up and self._needs_site_script(host))):
                 args.Cancel = True
                 self._deny(url)
-                self._add_site_script(host, then=lambda: token == self.scan_token and self.navigate(url))
+
+                def reopen():
+                    if token == self.scan_token:
+                        self.navigate(url)
+                if up:
+                    self._set_fingerprinting(True, then=lambda: self._add_site_script(host, then=reopen))
+                else:
+                    self._set_fingerprinting(False, then=reopen)
                 return
         app.allowed_once.discard(url)
         self.denied.pop(url.split('#', 1)[0], None)  # allowed now, even if it was stopped a moment ago
 
         self.showing_block_page = False
         self.builtin = False
-        self.blocked = self.popups = 0
+        self.blocked = self.popups = self.fingerprints = 0
         self.links, self._links_pending = self._links_pending, 0
         self.blocked_hosts.clear()
         self.cosmetic = None
@@ -369,6 +383,27 @@ class Tab:
         self.webview.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script).ContinueWith(
             Action[Task[String]](done), self.scheduler)
 
+    def _set_fingerprinting(self, on: bool, then=None):
+        """Register (Shields up) or remove (Shields down) the fingerprinting script; `then` runs once done."""
+        core = self.webview.CoreWebView2
+        if on == (self.fp_script is not None):
+            if then:
+                then()
+            return
+        if not on:
+            core.RemoveScriptToExecuteOnDocumentCreated(self.fp_script)
+            self.fp_script = None
+            if then:
+                then()
+            return
+
+        def done(task):
+            if not task.IsFaulted:
+                self.fp_script = task.Result
+            if then:
+                then()
+        core.AddScriptToExecuteOnDocumentCreatedAsync(self.fp_js).ContinueWith(Action[Task[String]](done), self.scheduler)
+
     def drop_site_scripts(self):
         """Forget every registered scriptlet script (Shields toggled); takes effect on the next navigation."""
         for script_id in self.site_scripts.values():
@@ -412,6 +447,11 @@ class Tab:
         except ValueError:
             return
         if not isinstance(msg, dict):
+            return
+        if msg.get('lite') == 'fingerprint':  # a page (or a frame in it) read canvas/audio/WebGL data
+            if not self.builtin and self.fp_script is not None:
+                self.fingerprints += 1
+                self.app.refresh_shield(self)
             return
         if 'lite' in msg:
             self._on_cosmetic_message(msg)

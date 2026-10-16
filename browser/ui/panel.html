@@ -133,6 +133,7 @@ function shields(d) {
   h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Ads &amp; trackers', on(d.blocked));
   h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Pop-ups', on(d.popups));
   h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Tracking links cleaned', on(d.links));
+  h += row(up ? I.check : I.dash, up ? 'ok' : 'off', 'Fingerprinting', up ? (d.fingerprints ? num(d.fingerprints) + ' randomized' : 'protected') : 'allowed');
   h += row(up && d.fixes ? I.check : I.dash, up && d.fixes ? 'ok' : 'off', 'Anti-adblock &amp; video-ad fixes', up ? (d.fixes ? num(d.fixes) + ' active' : 'none needed') : 'off');
   h += row(I.check, 'ok', 'Malware &amp; scam protection', 'on');
   h += row(I.check, 'ok', 'Global Privacy Control', 'on');

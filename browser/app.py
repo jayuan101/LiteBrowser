@@ -14,7 +14,7 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import filters, guard
+from . import filters, guard, privacy
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner
 from .popup import Popup
@@ -111,6 +111,9 @@ class App:
         self.stats = Stats(os.path.join(self.data_dir, 'stats.json'))
         self.antivirus = AntivirusScanner()
         self.https_only = self.config.get('https_only', True)
+        # Fingerprinting keys: new every start, and private tabs use their own so a site cannot
+        # match a private visit to a normal one.
+        self.fp_keys = {False: privacy.new_session_key(), True: privacy.new_session_key()}
 
         self.allowed_once: set[str] = set()
         self.allowed_hosts: set[str] = set()
@@ -332,7 +335,8 @@ class App:
         up = self.blocker.shields_up(tab.host)
         f = self.blocker.filters
         return {'host': tab.host.removeprefix('www.'), 'up': up, 'private': tab.private, 'blocked': tab.blocked,
-                'popups': tab.popups, 'links': tab.links, 'fixes': f.fixes(tab.host) if f and up else 0,
+                'popups': tab.popups, 'links': tab.links, 'fingerprints': tab.fingerprints,
+                'fixes': f.fixes(tab.host) if f and up else 0,
                 'https': tab.url.startswith('https://'), 'hosts': tab.blocked_hosts.most_common(40),
                 'open': self._details_open, 'scan': self._scan_info(tab), 'lists': self.filters_text()}
 

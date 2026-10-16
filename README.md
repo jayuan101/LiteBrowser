@@ -13,6 +13,11 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Privacy.** Tracking codes such as `fbclid` are stripped from links, every
   request carries the Global Privacy Control ("do not sell my data") signal,
   and pop-ups opened without a click are blocked.
+- **Fingerprinting protection**, Brave-style: canvas, WebGL and audio readouts
+  and the CPU core count are subtly randomized per site and per session, so a
+  site cannot recognise you across sites or across restarts. Private tabs use
+  their own key. The Shields panel shows how many scripts were fed randomized
+  values; turning Shields off for a site turns this off too.
 - **Private tabs** (Ctrl+Shift+N) keep nothing once closed.
 - **Safety.** Known malware and scam sites get a warning page before anything
   loads; downloads from known malware links are stopped; program files ask
@@ -42,7 +47,7 @@ Without the `adblock` package Lite falls back to a short built-in blocklist.
 | `browser/tab.py` | One tab: navigation guard, request blocking, scriptlets |
 | `browser/filters.py` | Filter lists, the adblock-rust engine, cosmetic and scriptlet rules |
 | `browser/blocker.py` | Shields state per site, built-in fallback blocklist |
-| `browser/privacy.py` | Tracking-link cleaning and GPC |
+| `browser/privacy.py` | Tracking-link cleaning, GPC, fingerprinting randomization script |
 | `browser/guard.py` | Phishing-style URL checks (punycode, `user@host`, `javascript:`) |
 | `browser/downloads.py` | Download checks and AMSI antivirus scanning |
 | `browser/scanner.py` | Optional Claude page scan |

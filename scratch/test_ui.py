@@ -13,7 +13,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
-from browser import guard, pages  # noqa: E402
+from browser import guard, pages, privacy  # noqa: E402
 
 failures = 0
 NODE = shutil.which('node')
@@ -65,6 +65,12 @@ check('punycode is a warning (can continue), not a hard block',
       guard.check_navigation('https://xn--80ak6aa92e.com/').level == 'warn')
 check('user@host is a warning, not a hard block', guard.check_navigation('https://google.com@evil.example/').level == 'warn')
 check('javascript: stays blocked', guard.check_navigation('javascript:alert(1)').level == 'block')
+
+key = privacy.new_session_key()
+scripts_ok('fingerprinting script', f'<script>{privacy.fingerprint_js(key)}</script>')
+check('session keys differ between sessions (and private tabs)', key != privacy.new_session_key())
+check('fingerprinting script covers canvas, WebGL, audio and cores',
+      all(s in privacy.fingerprint_js(key) for s in ('getImageData', 'toDataURL', 'readPixels', 'getChannelData', 'hardwareConcurrency')))
 
 print(f'\n{failures} failure(s)')
 sys.exit(1 if failures else 0)
