@@ -24,6 +24,11 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   or have open keep their cookies, so you stay logged in where you want and
   everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
+- **Lite Search**: pick "Lite" as the search engine in Settings and typing a
+  search shows Lite's own results page - plain rows of title, address and
+  snippet, fetched from a clean index in the background. No ads, no tracking
+  cookies, no search-history profile; the query is sent once and nothing is
+  stored. Any other engine still works the same as before.
 - **Zoom** (Ctrl +/−/0): per-site and remembered across restarts. Ctrl+scroll
   zooms the page in front of you too, but only the keys are remembered.
 - **Reopen closed tab** (Ctrl+Shift+T): the last ten closed tabs, one press each.

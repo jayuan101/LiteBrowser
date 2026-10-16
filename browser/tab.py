@@ -15,9 +15,9 @@ import threading
 import time
 import traceback
 from collections import Counter
-from urllib.parse import quote_plus, unquote, urlparse
+from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 
-from . import filters, guard, pages, privacy, updater
+from . import filters, guard, pages, privacy, search, updater
 from .scanner import COLLECT_JS
 from .webview2 import (
     Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2WebResourceContext,
@@ -42,6 +42,8 @@ def to_url(text: str, search_url: str = SEARCH_URL) -> str:
     looks_like_host = ' ' not in text and ('.' in text or text.startswith('localhost'))
     if looks_like_host:
         return 'https://' + text
+    if search_url == search.LITE_ENGINE:  # our own engine: a pseudo-URL the tab intercepts
+        return search.LITE_PREFIX + quote_plus(text)
     return search_url + quote_plus(text)
 
 
@@ -108,6 +110,7 @@ class Tab:
         self.scan_state = 'local'
         self.scan_reason = ''
         self.scan_token = 0
+        self.search_query = ''  # the query this tab's Lite Search page is showing, '' when it is not
         self.site_scripts: dict[str, str | None] = {}  # host -> registered script id (None while registering)
         self.fp_js = privacy.fingerprint_js(app.fp_keys[private])
         self.fp_script: str | None = None  # id of the registered fingerprinting script; None while Shields are down
@@ -187,6 +190,7 @@ class Tab:
         self.builtin = True
         self.loading = False
         self.host = ''
+        self.search_query = ''  # this is no longer a Lite Search page (show_search_results sets it back)
         self.blocked = self.popups = self.links = self.fingerprints = 0
         self.blocked_hosts.clear()
         self.webview.CoreWebView2.NavigateToString(html)
@@ -202,7 +206,10 @@ class Tab:
         self.favicon = ''
         self._show_builtin(pages.new_tab_html(self.app.stats.counts, self.app.stats.since,
                                               self.app.filters_text(short=True), self.private,
-                                              banner=self.app.update_banner))
+                                              banner=self.app.update_banner,
+                                              engine=self.app.SEARCH_ENGINES.get(
+                                                  self.app.settings.get('search_engine', 'brave'),
+                                                  ('Brave', ''))[0]))
         self.app.refresh_chrome(self)
         if self is self.app.current:
             self.app.focus_address()
@@ -234,6 +241,19 @@ class Tab:
                                                self.app.version,
                                                [(eid, name) for eid, (name, _) in self.app.SEARCH_ENGINES.items()],
                                                s.get('search_engine', 'brave')))
+        self.app.refresh_chrome(self)
+
+    def show_search_results(self, query: str, results: list[dict] | None):
+        """Lite's own search results page; results=None shows the Searching... state."""
+        self.url = ''
+        self.showing_block_page = False
+        self.sleep_url = None
+        self.reader_source = None
+        self.scan_state = 'local'
+        self.title = query
+        self.favicon = ''
+        self._show_builtin(pages.search_results_html(query, results))
+        self.search_query = query  # keep: the fetch callback checks it before rendering
         self.app.refresh_chrome(self)
 
     def show_reader(self, article: dict):
@@ -311,6 +331,10 @@ class Tab:
             args.Cancel = True
             self._deny(url)
             app.later(then)
+
+        if url.startswith(search.LITE_PREFIX):  # our own search engine, rendered locally
+            query = unquote_plus(url[len(search.LITE_PREFIX):]).strip()
+            return stop(lambda: app.search_results(self, query))
 
         if url not in app.allowed_once:
             verdict = guard.check_navigation(url)

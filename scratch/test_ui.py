@@ -61,6 +61,8 @@ scripts_ok('reader page', pages.reader_html({'title': 'T" & t', 'url': 'https://
                                              'blocks': [{'t': 'p', 'x': 'Hi <there>'}, {'t': 'li', 'x': 'one'}]}))
 scripts_ok('sleeping page', pages.sleeping_html('https://x.example/'))
 scripts_ok('settings page', pages.settings_html(True, True, 30, True, '0.2.0'))
+scripts_ok('search results page', pages.search_results_html('test query', [
+    {'title': 'Example', 'url': 'https://x.example/a', 'snippet': 'A snippet with <html> in it'}]))
 
 def js_ok(name, js):
     if not NODE:
@@ -88,6 +90,10 @@ check('settings page shows the stored values',
       and '<button class="tog on" data-k=tab_sleep' in st,
       st[:200])
 check('settings page sends changes back', all(s in st for s in ("cmd:'settings'", "cmd:'clearcookies'", "cmd:'updates'")))
+sr = pages.search_results_html('q "<x>', [{'title': 'T', 'url': 'https://x.example/', 'snippet': 's'}])
+check('search page escapes the query and rows', '"<x>' not in sr and 'Searching' not in sr)
+check('search page has a waiting state while fetching', 'Searching' in pages.search_results_html('q', None))
+check('search page explains a failed fetch', 'Could not reach' in pages.search_results_html('q', []))
 warn = pages.blocked_html('https://evil.example/"<x>', 'r', 'warn')
 check('warning page escapes the URL', '"<x>' not in warn.split('<script>')[0] and 'Continue anyway' in warn)
 check('hard block has no way through', 'Continue anyway' not in pages.blocked_html('javascript:x', 'r', 'block'))

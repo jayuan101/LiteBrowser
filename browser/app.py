@@ -15,7 +15,7 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import filters, guard, privacy, updater
+from . import filters, guard, privacy, search as search_mod, updater
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner
 from .popup import Popup
@@ -38,6 +38,7 @@ SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest ar
     'bing': ('Bing', 'https://www.bing.com/search?q='),
     'startpage': ('Startpage', 'https://www.startpage.com/sp/search?query='),
     'ecosia': ('Ecosia', 'https://www.ecosia.org/search?q='),
+    'lite': ('Lite', 'lite:'),  # our own results page, fetched from a clean index - no ads, no engine cookies
 }
 # Project folder, or the bundle folder when packaged with PyInstaller (packaging/lite.spec).
 ROOT = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -732,6 +733,21 @@ class App:
 
     def search_url(self) -> str:
         return SEARCH_ENGINES.get(self.settings.get('search_engine', 'brave'), SEARCH_ENGINES['brave'])[1]
+
+    def search_results(self, tab: Tab, query: str):
+        """Lite's own search: fetch results from a clean index in the background, render them locally."""
+        tab.show_search_results(query, None)  # the "Searching..." page while the fetch runs
+        def worker():
+            try:
+                results = search_mod.fetch(query)
+            except Exception:
+                traceback.print_exc()
+                results = []
+            def render():
+                if tab.builtin and tab.search_query == query:  # the tab moved on to something else meanwhile
+                    tab.show_search_results(query, results)
+            self.later(render)
+        threading.Thread(target=worker, daemon=True, name='lite-search').start()
 
     def toggle_pin(self, tab: Tab | None):
         if tab is not None and not tab.builtin:

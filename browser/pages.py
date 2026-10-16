@@ -46,7 +46,7 @@ background:#1c1f25;border:1px solid #2b2f37;border-radius:27px;box-shadow:0 12px
 
 
 def new_tab_html(counts: dict | None = None, since: str = '', lists: str = '', private: bool = False,
-                 banner: dict | None = None) -> str:
+                 banner: dict | None = None, engine: str = 'Brave') -> str:
     counts = counts or {}
     accent, ring, glow, glow2 = (('#a07bff', '#a07bff33', '#5b3fb855', '#a07bff22') if private else
                                  ('#fb542b', '#fb542b29', '#3a1f4d55', '#fb542b1f'))
@@ -82,7 +82,7 @@ background:#1c1f25;border:1px solid #2b2f37;color:#eceef2;font-size:14px}
 .banner:hover{border-color:var(--accent)}"""
     return f"""<!doctype html><html><head><meta charset=utf-8><title>{title}</title><style>{css}</style></head>
 <body><div class=clock id=clock></div><div class=greet id=greet></div>
-<label class=search>{_SEARCH_ICON}<input id=q placeholder="Search with Brave or type a web address"></label>
+<label class=search>{_SEARCH_ICON}<input id=q placeholder="Search with {escape(engine)} or type a web address"></label>
 {banner_html}
 {body}
 <script>
@@ -303,6 +303,57 @@ cc.addEventListener('click',()=>{{
     window.chrome.webview.postMessage({{cmd:'clearcookies'}})}}
   else{{cc.classList.add('armed');cc.textContent='Click again to confirm'}}}});
 document.getElementById('rel').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'updates'}}));
+</script></body></html>"""
+
+
+SEARCH_CSS = _BASE + """
+:root{--accent:#fb542b}
+body{justify-content:flex-start;padding:6vh 0 40px}
+.wrap{width:min(720px,92vw)}
+.brand{font-size:22px;font-weight:600;margin:0 0 18px;display:flex;gap:10px;align-items:baseline}
+.brand small{color:#6c727d;font-size:12.5px;font-weight:400;margin-left:auto}
+input.q{width:100%;height:44px;margin-bottom:22px;padding:0 18px;border-radius:22px;border:1px solid #2b2f37;
+background:#17191e;color:#fff;font:inherit;outline:0}
+input.q:focus{border-color:var(--accent)}
+.results{display:flex;flex-direction:column;gap:20px}
+.result{cursor:pointer}
+.result .t{color:#e8eaf0;font-size:16.5px;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.result:hover .t{color:var(--accent)}
+.result small.u{display:block;color:#6c727d;font-size:12px;margin:2px 0 4px;overflow:hidden;white-space:nowrap;
+text-overflow:ellipsis}
+.result .s{color:#9aa0ab;font-size:13.5px}
+.empty{color:#6c727d;text-align:center;padding:40px 0}
+.wait{display:flex;gap:12px;align-items:center;color:#9aa0ab;padding:40px 0;justify-content:center}
+.wait .dot{width:8px;height:8px;border-radius:4px;background:var(--accent);animation:pulse 1s infinite ease-in-out}
+.wait .dot:nth-child(2){animation-delay:.15s}.wait .dot:nth-child(3){animation-delay:.3s}
+@keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+"""
+
+
+def search_results_html(query: str, results: list[dict] | None) -> str:
+    """Lite's own results page: locally rendered rows over a fetched list; results=None means still fetching."""
+    if results is None:
+        body = '<div class=wait><span class=dot></span><span class=dot></span><span class=dot></span>Searching&hellip;</div>'
+    elif results:
+        body = '<div class=results>' + ''.join(
+            f"""<div class=result data-u={_js_str(e['url'])}><div class=t>{escape(e['title'])}</div>
+<small class=u>{escape(e['url'])}</small><div class=s>{escape(e['snippet'])}</div></div>"""
+            for e in results) + '</div>'
+    else:
+        body = ('<div class=empty>Could not reach the search index.<br>'
+                'Check your connection, or pick another engine in Settings - the address bar still works.</div>')
+    return f"""<!doctype html><html><head><meta charset=utf-8><title>{escape(query)}</title>
+<style>{SEARCH_CSS}</style></head>
+<body><div class=wrap><div class=brand>Lite Search<small>No ads &middot; nothing tracked</small></div>
+<input class=q id=q value="{escape(query)}" placeholder="Search&hellip;" spellcheck=false autofocus>
+{body}</div>
+<script>
+const q=document.getElementById('q');
+q.addEventListener('keydown',e=>{{if(e.key==='Enter'&&q.value.trim())
+window.chrome.webview.postMessage({{cmd:'go',q:q.value.trim()}})}});
+document.addEventListener('click',e=>{{const r=e.target.closest('.result');if(r)
+window.chrome.webview.postMessage({{cmd:'go',q:r.dataset.u}})}});
+q.focus();q.setSelectionRange(q.value.length,q.value.length);
 </script></body></html>"""
 
 
