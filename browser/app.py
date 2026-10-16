@@ -233,12 +233,15 @@ class App:
 
     def later(self, fn):
         """Run fn on the UI thread (safe from worker threads and from inside WebView2 events)."""
-        self.form.BeginInvoke(Action(fn))
+        try:
+            self.form.BeginInvoke(Action(fn))
+        except Exception:
+            pass  # the form is gone (shutting down); there is nothing left to run fn on
 
     def _on_closed(self, sender, args):
         self.ui_timer.Stop()
         self.slow_timer.Stop()
-        self._cookie_sweep()  # best effort: a final wipe of cookies you would not keep
+        self._final_cookie_sweep()  # best effort: a final wipe of cookies you would not keep
         self.stats.save()
         self.bookmarks.save()
         self.history.save()
@@ -671,6 +674,26 @@ class App:
         for t in self.tabs:
             if t is not self.active and t.sleepable() and now - t.last_active > limit:
                 t.sleep()
+
+    def _final_cookie_sweep(self):
+        """The close-time sweep must run synchronously: there is no message loop left to call it back."""
+        if not self.settings.get('auto_delete_cookies', True):
+            return
+        core = self.chrome.CoreWebView2
+        if core is None:
+            return
+        open_hosts = {t.host for t in self.tabs if t.host and not t.private and not t.builtin}
+        try:
+            task = core.CookieManager.GetCookiesAsync(None)
+            for _ in range(100):  # up to ~2 s; pumping lets the COM result arrive on this STA thread
+                if task.IsCompleted:
+                    break
+                WinForms.Application.DoEvents()
+                time.sleep(0.02)
+            if task.IsCompleted and not task.IsFaulted:
+                self._delete_cookies(task.Result, open_hosts)
+        except Exception:
+            pass  # best effort: a failed final wipe just leaves the cookies for the next start
 
     def _cookie_sweep(self):
         """Delete the cookies of sites you have not starred and are not open (auto-delete mode)."""
