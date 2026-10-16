@@ -38,7 +38,11 @@ def check(cache_path: str, running: str, timeout: float = 8.0, force: bool = Fal
             with open(cache_path, encoding='utf-8') as f:
                 cached = json.load(f)
             if time.time() - cached.get('checked', 0) < DAY:
-                return cached.get('update')
+                update = cached.get('update')
+                # the cache can outlive an install: the banner must not pop for the running version
+                if update and is_newer(str(update.get('tag') or ''), running):
+                    return update
+                return None
         except (OSError, ValueError):
             cached = None
     else:

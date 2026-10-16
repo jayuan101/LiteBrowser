@@ -93,5 +93,14 @@ except OSError:
     pass
 check('cache written after a check', updater_json is not None and 'checked' in updater_json)
 
+# a fresh cache entry for a version the app has already become must not bring the banner back
+import json as _json
+with open(cache, 'w', encoding='utf-8') as f:
+    _json.dump({'checked': __import__('time').time(),
+                'update': {'tag': 'v9.9.9', 'name': 'Lite 9.9.9', 'url': 'u'}}, f)
+check('cached update equal to running: not shown', updater.check(cache, '9.9.9') is None)
+check('cached update older than running: not shown', updater.check(cache, '9.9.10') is None)
+check('cached update newer than running: shown', updater.check(cache, '9.9.8') is not None)
+
 print(f'\n{failures} failure(s)')
 sys.exit(1 if failures else 0)
