@@ -111,6 +111,19 @@ body.private #field.focus { border-color: rgba(160,123,255,.75); box-shadow: 0 0
   border-radius: 13px; color: #d9cbff; background: rgba(160,123,255,.16); font-size: 12px; font-weight: 600; }
 body.private #private-badge { display: flex; }
 #private-badge svg { width: 15px; height: 15px; }
+
+/* ---- bookmarks bar ---- */
+#favbar { display: none; height: 34px; background: var(--bar); align-items: center; gap: 1px; padding: 0 8px;
+  border-bottom: 1px solid #0c0d10; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+#favbar.show { display: flex; }
+#favbar .bm { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border-radius: 8px;
+  color: var(--muted); flex: none; max-width: 180px; font-size: 12.5px; }
+#favbar .bm:hover { background: var(--hover); color: var(--text); }
+#favbar .bm svg { width: 14px; height: 14px; }
+#favbar .bm .t { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#favbar .hint { color: var(--dim); font-size: 12px; padding: 0 6px; white-space: nowrap; }
+#favbar .all { color: var(--muted); }
+#favbar .all:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -147,6 +160,7 @@ body.private #private-badge { display: flex; }
   <div class="btn" id="downloads" title="Downloads (Ctrl+J)"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="dot"></span></div>
   <div class="btn" id="menu" title="Menu"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></div>
 </div>
+<div id="favbar"></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const post = (msg) => window.chrome.webview.postMessage(msg);
@@ -161,6 +175,7 @@ const ICONS = {
   warn: '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>',
   page: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>',
+  chev: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
   spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z"/><path d="M18.5 15.5l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8z"/></svg>',
 };
 let state = null, editing = false, typed = false;
@@ -265,7 +280,27 @@ function render(s) {
   $('reader').style.display = s.reader ? 'grid' : 'none';
   $('reader').classList.toggle('on', !!s.reading);
   $('reader').title = s.reading ? 'Leave reader view' : 'Reader view';
+  renderBar(s.bar || {show: false, items: []});
 }
+
+let barKey = '';
+function renderBar(bar) {
+  const el = $('favbar');
+  el.classList.toggle('show', !!bar.show);
+  const key = JSON.stringify(bar);
+  if (key === barKey) return;  // state updates arrive on every request; the bar only changes when its items do
+  barKey = key;
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\\./, ''); } catch { return u; } };
+  el.innerHTML = bar.items.map((b) =>
+    `<div class="bm" data-u="${esc(b.url)}" title="${esc(b.title)} - ${esc(b.url)}">${ICONS.page}<span class="t">${esc(b.title || hostOf(b.url))}</span></div>`).join('')
+    + (bar.items.length ? `<div class="bm all" title="All bookmarks (Ctrl+H)">${ICONS.chev}</div>` : '');
+  for (const bm of el.querySelectorAll('.bm')) {
+    bm.addEventListener('click', (e) => { if (e.button === 0) post(bm.classList.contains('all') ? {ui: 'library'} : {ui: 'open', url: bm.dataset.u}); });
+    bm.addEventListener('auxclick', (e) => { if (e.button === 1 && !bm.classList.contains('all')) post({ui: 'opennew', url: bm.dataset.u}); });
+  }
+}
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
 function focusAddress() {
   const a = $('address');

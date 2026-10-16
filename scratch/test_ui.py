@@ -3,6 +3,7 @@
     python scratch/test_ui.py
 """
 import glob
+import json
 import os
 import py_compile
 import re
@@ -13,7 +14,9 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
-from browser import guard, pages, privacy  # noqa: E402
+from browser import guard, importer, pages, privacy  # noqa: E402
+from browser.passwords import Passwords  # noqa: E402
+from browser.store import Bookmarks  # noqa: E402
 
 failures = 0
 NODE = shutil.which('node')
@@ -57,6 +60,9 @@ scripts_ok('block page', pages.blocked_html('javascript:alert(1)', 'scripts', 'b
 scripts_ok('library page', pages.library_html([{'url': 'https://a.example/', 'title': 'A'}],
                                               [{'url': 'https://b.example/', 'title': 'B', 'ts': 0}]))
 scripts_ok('empty library page', pages.library_html([], []))
+scripts_ok('passwords library page', pages.library_html([], [], 'passwords',
+                                                        passwords=[{'url': 'https://s.example/', 'user': 'u', 'pw': 'p'}],
+                                                        note='Imported 3 passwords'))
 scripts_ok('reader page', pages.reader_html({'title': 'T" & t', 'url': 'https://x.example/a',
                                              'blocks': [{'t': 'p', 'x': 'Hi <there>'}, {'t': 'li', 'x': 'one'}]}))
 scripts_ok('sleeping page', pages.sleeping_html('https://x.example/'))
@@ -94,6 +100,76 @@ sr = pages.search_results_html('q "<x>', [{'title': 'T', 'url': 'https://x.examp
 check('search page escapes the query and rows', '"<x>' not in sr and 'Searching' not in sr)
 check('search page has a waiting state while fetching', 'Searching' in pages.search_results_html('q', None))
 check('search page explains a failed fetch', 'Could not reach' in pages.search_results_html('q', []))
+
+# ---- bookmarks bar, password vault, imports --------------------------------
+lib = pages.library_html([{'url': 'https://a.example/', 'title': 'A & B'}], [], 'bookmarks', note='Chrome: 2 new')
+check('library page shows the import note once', 'Chrome: 2 new' in lib and lib.count('Chrome: 2 new') == 1)
+pw = pages.library_html([], [], 'passwords',
+                        passwords=[{'url': 'https://s.example/login', 'user': 'ann <x>', 'pw': 'S3cret!'}], note='')
+check('passwords page shows hosts and users but never secrets',
+      's.example' in pw and 'ann' in pw and 'S3cret!' not in pw and 'Copy password' in pw)
+st = pages.settings_html(False, True, 45, False, '0.2.0', bookmarks_bar=True)
+check('settings page has a bookmarks bar toggle', 'data-k=bookmarks_bar' in st)
+
+with tempfile.TemporaryDirectory(prefix='lite-import-') as d:
+    chrome_dir = os.path.join(d, 'Google', 'Chrome', 'Default')
+    os.makedirs(chrome_dir)
+    bm = {'roots': {'bookmark_bar': {'children': [
+        {'type': 'url', 'name': 'Example', 'url': 'https://example.com/'},
+        {'type': 'url', 'name': 'Sub', 'url': 'https://sub.example/deep?x=1#frag'},
+        {'type': 'folder', 'name': 'f', 'children': [{'type': 'url', 'name': 'Bad', 'url': 'javascript:x'}]},
+    ]}}, 'other': {'children': []}}
+    with open(os.path.join(chrome_dir, 'Bookmarks'), 'w', encoding='utf-8') as f:
+        json.dump(bm, f)
+    edge_dir = os.path.join(d, 'Microsoft', 'Edge', 'User Data', 'Default')
+    os.makedirs(edge_dir)
+    with open(os.path.join(edge_dir, 'Bookmarks'), 'w', encoding='utf-8') as f:  # the real Chrome-family layout
+        json.dump({'roots': {'bookmark_bar': {'children': [
+            {'type': 'url', 'name': 'Edge Site', 'url': 'https://edge.example/'}]}}}, f)
+    saved_local = os.environ.get('LOCALAPPDATA')
+    os.environ['LOCALAPPDATA'] = d  # find_bookmarks() reads this at call time
+    try:
+        found = importer.find_bookmarks()
+        check('importer reads both Chromium layouts (bare profile and User Data)',
+              [(label, len(rows)) for label, rows in found] == [('Chrome', 2), ('Edge', 1)], str(found))
+        store = Bookmarks(os.path.join(d, 'bm.json'))
+        notes = importer.import_all(store)
+        check('importer adds the found bookmarks once', len(store.items()) == 3 and notes == ['Chrome: 2 new', 'Edge: 1 new'],
+              f'{len(store.items())} {notes}')
+        notes2 = importer.import_all(store)
+        check('importing again adds nothing and says so quietly', notes2 == [], str(notes2))
+    finally:
+        if saved_local is None:
+            del os.environ['LOCALAPPDATA']
+        else:
+            os.environ['LOCALAPPDATA'] = saved_local
+    html_path = os.path.join(d, 'bookmarks.html')
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write('<!DOCTYPE NETSCAPE-Bookmark-file1><DL><DT><A HREF="https://html.example/">'
+                'From HTML</A><DT><A HREF="ftp://skip.me/">Nope</A></DL>')
+    n = importer.import_html_file(store, html_path)
+    check('Netscape HTML import works', n == 1 and store.is_starred('https://html.example/'), str(n))
+
+vault_path = os.path.join(tempfile.mkdtemp(prefix='lite-pw-'), 'pw.json')
+v = Passwords(vault_path)
+secret = 'Zq7#TrW!42Lm'
+check('passwords add and dedupe', v.add('https://a.example/', 'ann', secret) and
+      not v.add('https://a.example/', 'ann', 'other') and v.count() == 1)
+check('passwords are never stored in the clear', secret not in open(vault_path, encoding='utf-8').read())
+check('passwords roundtrip through DPAPI', Passwords(vault_path).reveal('https://a.example/', 'ann') == secret)
+check('passwords reject junk rows', not v.add('notaurl', 'u', 'p') and not v.add('https://b.example/', 'u', ''))
+csv_path = os.path.join(tempfile.mkdtemp(prefix='lite-csv-'), 'pw.csv')
+with open(csv_path, 'w', encoding='utf-8-sig') as f:  # BOM, like Chrome's export
+    f.write('name,url,username,password\nSite,https://c.example/,carol,Cs3cret,\n')
+    f.write('Site,https://a.example/,ann,ignored-already-saved\n')
+    f.write('Bad,notaurl,carol,also-ignored\n')
+added, skipped = Passwords(vault_path).import_csv(csv_path)
+check('CSV import maps Chrome columns and skips saved rows', added == 1 and skipped == 2, f'{added}/{skipped}')
+fx_path = os.path.join(tempfile.mkdtemp(prefix='lite-csv-'), 'fx.csv')
+with open(fx_path, 'w', encoding='utf-8') as f:
+    f.write('"url","username","password"\n"https://d.example/","dave","Ds3cret"\n')
+added, _ = Passwords(vault_path).import_csv(fx_path)
+check('CSV import maps Firefox columns', added == 1)
 warn = pages.blocked_html('https://evil.example/"<x>', 'r', 'warn')
 check('warning page escapes the URL', '"<x>' not in warn.split('<script>')[0] and 'Continue anyway' in warn)
 check('hard block has no way through', 'Continue anyway' not in pages.blocked_html('javascript:x', 'r', 'block'))

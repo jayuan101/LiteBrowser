@@ -81,6 +81,15 @@ class Bookmarks(_Store):
         self._dirty = True
         return not starred
 
+    def add(self, url: str, title: str = '') -> bool:
+        """Star without unstarring (imports use this); False if it was already here."""
+        url = _no_fragment(url)
+        if not url or self.is_starred(url):
+            return False
+        self.data[url] = {'title': title or url, 'ts': time.time()}
+        self._dirty = True
+        return True
+
     def remove(self, url: str) -> None:
         if _no_fragment(url) in self.data:
             del self.data[_no_fragment(url)]

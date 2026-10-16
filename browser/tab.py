@@ -222,9 +222,12 @@ class Tab:
         self.library_view = view
         self.sleep_url = None
         self.reader_source = None
-        self.title = 'Bookmarks' if view == 'bookmarks' else 'History'
+        self.title = {'bookmarks': 'Bookmarks', 'history': 'History', 'passwords': 'Passwords'}.get(view, 'History')
         self.favicon = ''
-        self._show_builtin(pages.library_html(self.app.bookmarks.items(), self.app.history.recent(), view))
+        note = self.app.import_note if view in ('bookmarks', 'passwords') else ''
+        self.app.import_note = ''  # an import note is shown once
+        self._show_builtin(pages.library_html(self.app.bookmarks.items(), self.app.history.recent(), view,
+                                              passwords=self.app.passwords.items(), note=note))
         self.app.refresh_chrome(self)
 
     def show_settings(self):
@@ -240,7 +243,8 @@ class Tab:
                                                int(s.get('sleep_after_minutes', 30)), s.get('update_check', True),
                                                self.app.version,
                                                [(eid, name) for eid, (name, _) in self.app.SEARCH_ENGINES.items()],
-                                               s.get('search_engine', 'brave')))
+                                               s.get('search_engine', 'brave'),
+                                               s.get('bookmarks_bar', True)))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):
@@ -612,6 +616,15 @@ class Tab:
         elif cmd == 'unstar':
             self.app.bookmarks.remove(str(msg.get('url', '')))
             self.show_library('bookmarks')
+        elif cmd == 'importbookmarks':
+            self.app.import_bookmarks()
+        elif cmd == 'importpasswords':
+            self.app.import_passwords()
+        elif cmd in ('copyuser', 'copypass'):
+            self.app.copy_login(str(msg.get('url', '')), str(msg.get('user', '')), cmd == 'copypass')
+        elif cmd == 'delpass':
+            self.app.passwords.remove(str(msg.get('url', '')), str(msg.get('user', '')))
+            self.show_library('passwords')
         elif cmd == 'delhist':
             self.app.history.delete(str(msg.get('url', '')))
             self.show_library('history')

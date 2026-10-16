@@ -40,6 +40,13 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   that wipes all cookies right away. Changes apply immediately and are saved.
 - **Bookmarks and history** (Ctrl+D to star, Ctrl+H for history, or the
   library button): one searchable, built-in page manages both.
+- **Bookmarks bar** (toggle in Settings): your starred pages in a row under
+  the toolbar - left-click opens, middle-click opens a new tab.
+- **Import bookmarks**: one click pulls them from Chrome, Edge, Brave or
+  Firefox on this PC (read-only), or from any browser's bookmarks.html export.
+- **Password vault**: import a CSV exported from another browser's password
+  manager. Passwords are encrypted with Windows DPAPI to your account, never
+  shown on screen and never sent anywhere - Copy user / Copy password only.
 - **Reader mode** (the book button or View menu): an article page re-rendered
   as clean text with no layout, fonts or scripts from the site.
 - **Tab sleeping**: background tabs you have not used for 30 minutes (settable

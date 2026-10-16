@@ -15,9 +15,10 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import filters, guard, privacy, search as search_mod, updater
+from . import filters, guard, importer, privacy, search as search_mod, updater
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner
+from .passwords import Passwords
 from .popup import Popup
 from .scanner import FableScanner
 from .stats import Stats
@@ -136,6 +137,8 @@ class App:
         self.bookmarks = Bookmarks(os.path.join(self.data_dir, 'bookmarks.json'))
         self.history = History(os.path.join(self.data_dir, 'history.json'))
         self.settings = Settings(os.path.join(self.data_dir, 'settings.json'))
+        self.passwords = Passwords(os.path.join(self.data_dir, 'passwords.json'))
+        self.import_note = ''  # result of the last bookmark/password import, shown on the library page
         self.antivirus = AntivirusScanner()
         self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
         self.https_only = self.config.get('https_only', True)
@@ -215,7 +218,8 @@ class App:
         return ctypes.windll.user32.GetDpiForWindow(int(self.form.Handle.ToInt64())) / 96 or 1.0
 
     def _size_chrome(self):
-        self.chrome.Height = round(CHROME_HEIGHT * self._scale())
+        bar = 34 if self.settings.get('bookmarks_bar', True) else 0
+        self.chrome.Height = round((CHROME_HEIGHT + bar) * self._scale())
 
     def _on_chrome_ready(self, sender, args):
         if not args.IsSuccess:
@@ -313,6 +317,11 @@ class App:
             self.toggle_bookmark(tab)
         elif ui == 'library':
             self.show_library()
+        elif ui == 'open':
+            tab.navigate(str(msg.get('url', '')))
+            tab.webview.Focus()
+        elif ui == 'opennew':
+            self.new_tab(str(msg.get('url', '')) or None)
         elif ui == 'settings':
             self.show_settings()
         elif ui == 'reopen':
@@ -363,6 +372,8 @@ class App:
                         'count': tab.blocked if tab else 0},
             'scan': self._scan_info(tab) if on_site else {'show': False},
             'downloads': self._downloads_badge(),
+            'bar': {'show': bool(self.settings.get('bookmarks_bar', True)),
+                    'items': [{'url': b['url'], 'title': (b['title'] or b['url'])[:24]} for b in self.bookmarks.items()[:40]]},
         }
 
     def _flush_ui(self):
@@ -492,6 +503,8 @@ class App:
             self.show_library('bookmarks')
         elif item == 'history':
             self.show_library('history')
+        elif item == 'passwords':
+            self.show_library('passwords')
         elif item == 'settings':
             self.show_settings()
         elif item == 'pin' and tab:
@@ -682,6 +695,37 @@ class App:
         tab.show_library(view)
         tab.webview.Focus()
 
+    def import_bookmarks(self):
+        """Pull bookmarks from installed browsers (read-only); the result appears on the library page."""
+        notes = importer.import_all(self.bookmarks)
+        self.import_note = ', '.join(notes) or 'No bookmarks found in Chrome, Edge, Brave or Firefox'
+        self.show_library('bookmarks')
+
+    def import_passwords(self):
+        """Ask for a CSV exported from another browser and add its rows to the vault."""
+        dialog = WinForms.OpenFileDialog()
+        dialog.Title = 'Import passwords from CSV'
+        dialog.Filter = 'Password CSV (*.csv)|*.csv|All files (*.*)|*.*'
+        if dialog.ShowDialog(self.form) != WinForms.DialogResult.OK:
+            return
+        try:
+            added, skipped = self.passwords.import_csv(dialog.FileName)
+        except Exception as exc:
+            self.import_note = f'Could not read that file: {exc}'
+            self.show_library('passwords')
+            return
+        self.import_note = f'Imported {added} passwords' + (f', skipped {skipped} already saved' if skipped else '')
+        if not added:
+            self.import_note = 'No passwords imported' + (f' ({skipped} already saved)' if skipped else '')
+        self.show_library('passwords')
+
+    def copy_login(self, url: str, user: str, password: bool):
+        """Put the username or the revealed password on the clipboard; the vault never displays it."""
+        try:
+            WinForms.Clipboard.SetText(self.passwords.reveal(url, user) if password else user)
+        except Exception:
+            pass
+
     def show_settings(self):
         tab = self.current
         if tab is None:
@@ -768,6 +812,10 @@ class App:
         elif key == 'search_engine' and value in SEARCH_ENGINES:
             self.settings.set(key, str(value))
             self.refresh_chrome()  # the address bar placeholder names the engine
+        elif key == 'bookmarks_bar':
+            self.settings.set(key, bool(value))
+            self._size_chrome()  # the tab area grows or shrinks with the bar
+            self.refresh_chrome()
 
     def clear_cookies_now(self):
         """Wipe every cookie, starred sites included - the settings page's explicit button."""

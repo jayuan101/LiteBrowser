@@ -6,10 +6,16 @@ sponsored content of any kind.
 import json
 from datetime import date, datetime
 from html import escape
+from urllib.parse import urlparse
 
 
 def _js_str(s: str) -> str:
     return json.dumps(s).replace('<', '\\u003c')
+
+
+def _host_of(url: str) -> str:
+    p = urlparse(url).hostname or ''
+    return p[4:] if p.startswith('www.') else p
 
 
 _BASE = """
@@ -159,6 +165,9 @@ input.q:focus{border-color:var(--accent)}
 .row .when{color:#6c727d;font-size:12px;flex:none}
 .row .x{flex:none;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:#6c727d;cursor:pointer}
 .row .x:hover{background:#ff6b6b22;color:#ff6b6b}
+.row .act{flex:none;color:#9aa0ab;font-size:12.5px;border:1px solid #2b2f37;border-radius:8px;padding:5px 10px;cursor:pointer}
+.row .act:hover{color:#fff;border-color:var(--accent)}
+.note{color:#6c727d;font-size:12.5px;margin:0 0 12px}
 .empty{color:#6c727d;text-align:center;padding:40px 0}
 .danger{margin-top:18px;background:transparent;border:1px solid #4a2626;color:#ff8b8b;border-radius:9px;
 padding:8px 16px;font:inherit;font-size:13px;cursor:pointer}
@@ -176,26 +185,53 @@ def _when(ts: float) -> str:
     return d.strftime('%b %d')
 
 
-def library_html(bookmarks: list[dict], history: list[dict], view: str = 'history') -> str:
-    """Bookmarks and history in one page; rows are filtered live by the search box."""
-    view = 'bookmarks' if view == 'bookmarks' else 'history'
-    title = 'Bookmarks' if view == 'bookmarks' else 'History'
-    rows = bookmarks if view == 'bookmarks' else history
-    items = ''.join(
-        f"""<div class=row data-u={_js_str(e['url'])}><div class=t data-open=1><div>{escape(e['title'])}</div>
-<small>{escape(e['url'])}</small></div><span class=when>{'' if view == 'bookmarks' else escape(_when(e['ts']))}</span>
-<span class=x title="{'Remove bookmark' if view == 'bookmarks' else 'Delete'}">&#10005;</span></div>"""
-        for e in rows)
-    if not rows:
-        items = (f'<div class=empty>No bookmarks yet. Click the star in the toolbar (or press Ctrl+D) to add one.</div>'
-                 if view == 'bookmarks' else '<div class=empty>Nothing here yet - pages you open will show up.</div>')
-    clear = ('<button class=danger id=clearhist>Delete all history</button>' if view == 'history' and rows else '')
+def library_html(bookmarks: list[dict], history: list[dict], view: str = 'history',
+                 passwords: list[dict] | None = None, note: str = '') -> str:
+    """Bookmarks, history and saved passwords in one page; rows are filtered live by the search box."""
+    view = view if view in ('bookmarks', 'history', 'passwords') else 'history'
+    title = {'bookmarks': 'Bookmarks', 'history': 'History', 'passwords': 'Passwords'}[view]
+    rows = {'bookmarks': bookmarks, 'history': history, 'passwords': passwords or []}[view]
+    if view == 'passwords':
+        items = ''.join(
+            f"""<div class=row data-u={_js_str(e['url'])} data-u2={_js_str(e['user'])}><div class=t data-open=1>
+<div>{escape(_host_of(e['url']) or e['url'])}</div><small>{escape(e['user'] or 'no username')}</small></div>
+<span class=act data-a=copyuser>Copy user</span><span class=act data-a=copypass>Copy password</span>
+<span class=x title=Delete>&#10005;</span></div>"""
+            for e in rows)
+        if not rows:
+            items = ('<div class=empty>No saved passwords yet. Export a CSV from your old browser '
+                     '(Chrome, Edge and Firefox all have "Export passwords" in their password manager) '
+                     'and bring them in with Import.</div>')
+        extra = (f'<button class=act id=importp>Import from CSV</button>'
+                 f'<span class=note>Locked to this Windows account; Lite never sends a password anywhere.</span>')
+    elif view == 'bookmarks':
+        items = ''.join(
+            f"""<div class=row data-u={_js_str(e['url'])}><div class=t data-open=1><div>{escape(e['title'])}</div>
+<small>{escape(e['url'])}</small></div><span class=x title="Remove bookmark">&#10005;</span></div>"""
+            for e in rows)
+        if not rows:
+            items = ('<div class=empty>No bookmarks yet. Click the star in the toolbar (or press Ctrl+D) to add one, '
+                     'or import them from another browser below.</div>')
+        extra = '<button class=act id=importb>Import from browsers</button>'
+    else:
+        items = ''.join(
+            f"""<div class=row data-u={_js_str(e['url'])}><div class=t data-open=1><div>{escape(e['title'])}</div>
+<small>{escape(e['url'])}</small></div><span class=when>{escape(_when(e['ts']))}</span>
+<span class=x title=Delete>&#10005;</span></div>"""
+            for e in rows)
+        if not rows:
+            items = '<div class=empty>Nothing here yet - pages you open will show up.</div>'
+        extra = ('<button class=danger id=clearhist>Delete all history</button>'
+                 if view == 'history' and rows else '')
+    note_html = f'<div class=note>{escape(note)}</div>' if note else ''
     return f"""<!doctype html><html><head><meta charset=utf-8><title>{title}</title><style>{LIBRARY_CSS}</style></head>
 <body><div class=wrap><h1>{title}<span class=views>
 <button id=v-bookmarks data-v=bookmarks>Bookmarks</button>
-<button id=v-history data-v=history>History</button></span></h1>
+<button id=v-history data-v=history>History</button>
+<button id=v-passwords data-v=passwords>Passwords</button></span></h1>
+{note_html}
 <input class=q id=q placeholder="Filter by title or address...">
-<div class=list id=list>{items}</div>{clear}</div>
+<div class=list id=list>{items}</div>{extra}</div>
 <script>
 const view={_js_str(view)};
 for(const b of document.querySelectorAll('h1 button'))b.addEventListener('click',()=>
@@ -206,10 +242,17 @@ document.getElementById('q').addEventListener('input',e=>{{
     r.style.display=r.textContent.toLowerCase().includes(q)?'':'none'}});
 document.getElementById('list').addEventListener('click',e=>{{
   const row=e.target.closest('.row');if(!row)return;
-  if(e.target.classList.contains('x'))
-    window.chrome.webview.postMessage({{cmd:view==='bookmarks'?'unstar':'delhist',url:row.dataset.u}});
+  const b=e.target.closest('[data-a]');
+  if(b)window.chrome.webview.postMessage({{cmd:b.dataset.a,url:row.dataset.u,user:row.dataset.u2||''}});
+  else if(e.target.classList.contains('x'))
+    window.chrome.webview.postMessage({{cmd:view==='bookmarks'?'unstar':(view==='passwords'?'delpass':'delhist'),
+      url:row.dataset.u,user:row.dataset.u2||''}});
   else if(e.target.closest('[data-open]'))
     window.chrome.webview.postMessage({{cmd:'go',q:row.dataset.u}})}});
+const imp=document.getElementById('importb');if(imp)imp.addEventListener('click',()=>
+window.chrome.webview.postMessage({{cmd:'importbookmarks'}}));
+const imp2=document.getElementById('importp');if(imp2)imp2.addEventListener('click',()=>
+window.chrome.webview.postMessage({{cmd:'importpasswords'}}));
 const ch=document.getElementById('clearhist');
 if(ch)ch.addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'clearhist'}}));
 for(const b of document.querySelectorAll('h1 button'))b.classList.toggle('on',b.dataset.v===view);
@@ -246,7 +289,8 @@ small.ver{color:#6c727d}
 
 
 def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
-                  engines: list[tuple[str, str]] | None = None, engine: str = 'brave') -> str:
+                  engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
+                  bookmarks_bar: bool = True) -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
@@ -274,6 +318,12 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <button class="tog{' on' if tab_sleep else ''}" data-k=tab_sleep aria-label="toggle"></button></div>
 <div class=set><div class=txt><div>Sleep after</div><small>How long a background tab stays awake.</small></div>
 <input class=min id=sleep-min type=number min=1 max=1440 value={max(1, min(1440, sleep_minutes))}></div>
+</section>
+
+<section><h2>Bookmarks</h2>
+<div class=set><div class=txt><div>Show the bookmarks bar</div>
+<small>Your starred pages in a row under the toolbar. Left-click opens, middle-click opens a new tab.</small></div>
+<button class="tog{' on' if bookmarks_bar else ''}" data-k=bookmarks_bar aria-label="toggle"></button></div>
 </section>
 
 <section><h2>Updates</h2>
