@@ -265,12 +265,17 @@ class Extensions:
         self.path = os.path.join(folder, 'extensions.json')
         self.items: dict[str, dict] = {}  # WebView2's extension ID -> entry
         self.checked = 0.0  # the last update check
+        # Folders to delete at the next start, before WebView2 runs: a removed extension (WebView2
+        # drops one whose files are gone) and the version an update replaced. Lite never calls
+        # WebView2's RemoveAsync - after it, the WebView2 browser process outlives Lite (measured).
+        self.trash: list[str] = []
         try:
             with open(self.path, encoding='utf-8') as f:
                 data = json.load(f)
             items = data.get('items', {})
             self.items = {k: v for k, v in items.items() if isinstance(v, dict) and isinstance(v.get('folder'), str)}
             self.checked = float(data.get('checked', 0))
+            self.trash = [t for t in data.get('trash', []) if isinstance(t, str)]
         except (OSError, ValueError, AttributeError, TypeError):
             pass
 
@@ -278,8 +283,29 @@ class Extensions:
         os.makedirs(self.folder, exist_ok=True)
         tmp = self.path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump({'items': self.items, 'checked': self.checked}, f, indent=1)
+            json.dump({'items': self.items, 'checked': self.checked, 'trash': self.trash}, f, indent=1)
         os.replace(tmp, self.path)
+
+    def throw_away(self, folder: str) -> None:
+        """Delete this folder at the next start (WebView2 may still be running it now)."""
+        if folder not in self.trash and not any(e.get('folder') == folder for e in self.items.values()):
+            self.trash.append(folder)
+            self.save()
+
+    def keep(self, folder: str) -> None:
+        """A folder that is in use again (the same version added back) must not be deleted."""
+        if folder in self.trash:
+            self.trash.remove(folder)
+            self.save()
+
+    def empty_trash(self) -> None:
+        """At start-up, before WebView2 runs."""
+        if not self.trash:
+            return
+        for folder in self.trash:
+            self.discard(folder)
+        self.trash = [f for f in self.trash if os.path.isdir(f)]  # still locked: try again next time
+        self.save()
 
     def fetch(self, ext_id: str, browser_version: str) -> dict:
         """Worker thread: download, verify and unpack a Web Store extension. The entry is not saved yet."""
@@ -288,10 +314,8 @@ class Extensions:
         info = unpack(archive, staging, key)
         folder = os.path.join(self.folder, ext_id, re.sub(r'[^\w.]', '_', info['version']) or 'unknown')
         if os.path.abspath(folder) != os.path.abspath(staging):
-            if os.path.isdir(folder) and not any(e.get('folder') == folder for e in self.items.values()):
-                shutil.rmtree(folder, ignore_errors=True)  # a leftover of a failed install
             if os.path.isdir(folder):
-                folder = staging  # that version is installed and in use: keep this copy beside it
+                folder = staging  # that version's folder exists (in use, or removed this session): keep this copy beside it
             else:
                 os.replace(staging, folder)
         return dict(info, folder=folder, store_id=ext_id, source='store', enabled=True)
@@ -306,11 +330,11 @@ class Extensions:
         return dict(info, folder=folder, source='folder', origin=os.path.abspath(path), enabled=True)
 
     def forget(self, ext_id: str) -> dict | None:
-        """Drop an entry and its files."""
+        """Drop an entry; its files go at the next start."""
         entry = self.items.pop(ext_id, None)
         if entry:
-            self.discard(entry['folder'])
             self.save()
+            self.throw_away(entry['folder'])
         return entry
 
     def discard(self, folder: str) -> None:

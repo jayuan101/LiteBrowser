@@ -35,7 +35,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.9'
+APP_VERSION = '0.2.10'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -146,6 +146,7 @@ class App:
         self.passwords = Passwords(os.path.join(self.data_dir, 'passwords.json'))
         self.session = Session(os.path.join(self.data_dir, 'session.json'))
         self.extensions = extensions.Extensions(os.path.join(self.data_dir, 'extensions'))
+        self.extensions.empty_trash()  # removed extensions and replaced versions, before WebView2 runs
         self.ext_note = ''  # the last extension add/update/remove result, shown on the settings page
         self.import_note = ''  # result of the last bookmark/password import, shown on the library page
         self.antivirus = AntivirusScanner()
@@ -985,7 +986,7 @@ class App:
         self.ext_note = note
         self._refresh_settings_pages(focus='extensions')
 
-    def _load_extension(self, entry: dict, quiet: bool = False, updated: bool = False, fallback: dict | None = None):
+    def _load_extension(self, entry: dict, quiet: bool = False, updated: bool = False):
         """Hand an unpacked extension to WebView2; on success it is remembered (and runs from now on)."""
         profile = self._profile()
         if profile is None:
@@ -996,10 +997,8 @@ class App:
             if t.IsFaulted:
                 reason = str(t.Exception.InnerException.Message if t.Exception.InnerException else t.Exception)
                 print('extension failed to load:', entry['folder'], reason)
-                if fallback:  # an update that does not load: keep the version that worked
-                    self._load_extension(fallback, quiet=True)
-                elif not quiet:
-                    self.extensions.discard(entry['folder'])
+                if not any(e['folder'] == entry['folder'] for e in self.extensions.items.values()):
+                    self.extensions.discard(entry['folder'])  # never used; an update's old version stays installed
                 if not quiet:
                     self._extension_note(f"Couldn't add {entry['name']}: {reason.strip()[:160]}")
                 return
@@ -1007,11 +1006,12 @@ class App:
             ext_id = str(ext.Id)
             old = self.extensions.items.get(ext_id)
             self.extensions.items[ext_id] = dict(entry, id=ext_id)
+            self.extensions.keep(entry['folder'])
             self.extensions.save()
             if old and old['folder'] != entry['folder']:
-                self.extensions.discard(old['folder'])  # the version this one replaces
-            if not entry.get('enabled', True):
-                ext.EnableAsync(False)
+                self.extensions.throw_away(old['folder'])  # the version this one replaced in place
+            if bool(ext.IsEnabled) != entry.get('enabled', True):
+                ext.EnableAsync(entry.get('enabled', True))  # e.g. added back after a removal (which left it off)
             if not quiet:
                 verb = 'Updated' if updated else 'Added'
                 self._extension_note(f"{verb} {entry['name']} {entry['version']} - reload a page to see it there.")
@@ -1074,14 +1074,15 @@ class App:
         self._with_extension(ext_id, toggle)
 
     def remove_extension(self, ext_id: str):
+        """Off right away; its files go at the next start, and WebView2 then drops it. Not RemoveAsync:
+        after that call the WebView2 browser process keeps running once Lite has closed."""
         def remove(ext):
-            def forget(_t=None):
-                entry = self.extensions.forget(ext_id)
-                self._extension_note(f"Removed {entry['name']}." if entry else '')
+            entry = self.extensions.forget(ext_id)
+            note = f"Removed {entry['name']} - reload open pages to take it off them." if entry else ''
             if ext is None:
-                forget()
+                self._extension_note(note)
             else:
-                self._then(ext.RemoveAsync(), forget)
+                self._then(ext.EnableAsync(False), lambda _t: self._extension_note(note))
         self._with_extension(ext_id, remove)
 
     def open_extension_page(self, ext_id: str, which: str):
@@ -1109,15 +1110,12 @@ class App:
         self.later(checked)
 
     def _replace_extension(self, ext_id: str, entry: dict, old: dict):
+        """Adding the new version's folder replaces the installed one in place (same ID)."""
+        if ext_id not in self.extensions.items:
+            self.extensions.discard(entry['folder'])  # removed while the update downloaded
+            return
         entry['enabled'] = old.get('enabled', True)
-
-        def replace(ext):
-            add = lambda _t=None: self._load_extension(entry, updated=True, fallback=old)  # noqa: E731
-            if ext is None:
-                add()
-            else:
-                self._then(ext.RemoveAsync(), add)
-        self._with_extension(ext_id, replace)
+        self._load_extension(entry, updated=True)
 
     def _extensions_data(self) -> list[dict]:
         return [{'id': ext_id, 'name': e['name'], 'version': e['version'], 'enabled': e.get('enabled', True),

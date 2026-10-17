@@ -185,8 +185,18 @@ s.discard(outside)
 s.discard(store_dir)
 check('discard never deletes outside the store (nor the store itself)', os.path.isdir(outside) and os.path.isdir(store_dir))
 s.forget(ext_id)
-check('forget removes the entry and its files', ext_id not in ex.Extensions(store_dir).items
-      and not os.path.exists(os.path.join(store_dir, ext_id)))
+again = ex.Extensions(store_dir)
+check('forget drops the entry; its files wait for the next start (WebView2 may be running it)',
+      ext_id not in again.items and os.path.isdir(entry['folder']) and entry['folder'] in again.trash)
+again.keep(entry['folder'])
+check('a folder added back is taken out of the trash', entry['folder'] not in ex.Extensions(store_dir).trash)
+again.throw_away(entry['folder'])
+again.empty_trash()
+check('at the next start the trash is emptied', not os.path.exists(os.path.join(store_dir, ext_id)) and again.trash == []
+      and ex.Extensions(store_dir).trash == [])
+s.items['x'] = {'folder': copied['folder']}
+s.throw_away(copied['folder'])
+check('a folder in use is never thrown away', copied['folder'] not in s.trash)
 
 # ---- plain reasons ---------------------------------------------------------------------
 check('explain: unknown ID', ex.explain(urllib.error.HTTPError('u', 404, 'x', None, None)).startswith('the Chrome Web Store has no'))
