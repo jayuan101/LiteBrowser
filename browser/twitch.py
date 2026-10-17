@@ -9,9 +9,12 @@ until the break is over. If every copy has ads, the ad clips are cut out of the 
 the video pauses for the break instead of showing it.
 
 The wrapped Worker is a Proxy of the real one, so to the page it still reads as native
-code: Twitch's bot check at sign-in must not see a tampered browser.
+code: Twitch's bot check at sign-in must not see a tampered browser. It shares one toString
+wrapper with the fingerprinting script - two stacked wrappers failed that check.
 """
 import json
+
+from . import privacy
 
 CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko'  # the public client id twitch.tv itself uses
 
@@ -199,13 +202,10 @@ _PAGE_JS = r"""
     },
   });
   // A Proxy prints as "function () { [native code] }"; the real one says "function Worker() ...".
-  // toString answers for the original (and for itself), so the page sees an untouched browser.
-  const nativeToString = Function.prototype.toString;
-  const disguise = new WeakMap([[LiteWorker, RealWorker]]);
-  const toString = {toString() { return nativeToString.call(disguise.get(this) || this); }}.toString;
-  disguise.set(toString, nativeToString);
-  const desc = Object.getOwnPropertyDescriptor(Function.prototype, 'toString');
-  Object.defineProperty(Function.prototype, 'toString', {...desc, value: toString});
+  // toString answers for the original through Lite's one shared wrapper (privacy.disguise_js):
+  // a wrapper of its own on top of the fingerprinting one is what Twitch's sign-in check caught.
+  const disguise = %(disguise)s;
+  disguise(LiteWorker, RealWorker);
   Object.defineProperty(window, 'Worker', {...Object.getOwnPropertyDescriptor(window, 'Worker'), value: LiteWorker});
 })();
 """
@@ -214,7 +214,7 @@ _PAGE_JS = r"""
 def page_js(debug: bool = False) -> str:
     """debug: the worker reports each step of an ad break (scratch tests read them from tab.twitch_log)."""
     return _PAGE_JS % {'worker': json.dumps(_WORKER_JS), 'client': json.dumps(CLIENT_ID),
-                       'debug': 'true' if debug else 'false'}
+                       'debug': 'true' if debug else 'false', 'disguise': privacy.disguise_js()}
 
 
 TWITCH_JS = page_js()

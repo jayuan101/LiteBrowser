@@ -13,7 +13,9 @@
   a site cannot tell anything is off, yet every site (and every restart) sees
   a different fingerprint and cannot match them up.
 """
+import json
 import random
+import secrets
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 # Cross-site click and email identifiers. Campaign tags like utm_source are left alone:
@@ -37,14 +39,44 @@ GPC_JS = """
 """
 
 
-# Registered per tab and run at document start in every frame. `%d` is the session key.
+# Lite's page scripts wrap a few built-ins - canvas and audio readouts, the CPU core count,
+# Twitch's player worker - and Function.prototype.toString keeps printing the originals for
+# them. A page gets one such wrapper: whichever Lite script runs first puts it in place and
+# the others register through it. A second wrapper stacked on the first is what Twitch's
+# sign-in check caught ("Your browser is not currently supported"). Registering takes this
+# key, new every session, so a page can neither use the hook nor test for it.
+_DISGUISE_KEY = secrets.token_urlsafe(18)
+_DISGUISE_JS = r"""((key) => {
+  const current = Function.prototype.toString;
+  const probe = () => {};
+  try {
+    if (current.call(probe, key, probe) === key) return (fake, real) => { current.call(fake, key, real); };
+  } catch (e) {}
+  const originals = new WeakMap();
+  const toString = {toString() {
+    if (arguments.length === 2 && arguments[0] === key) { originals.set(this, arguments[1]); return key; }
+    return current.call(originals.get(this) || this);
+  }}.toString;
+  originals.set(toString, current);
+  Object.defineProperty(Function.prototype, 'toString',
+    {...Object.getOwnPropertyDescriptor(Function.prototype, 'toString'), value: toString});
+  return (fake, real) => { originals.set(fake, real); };
+})(%s)"""
+
+
+def disguise_js() -> str:
+    """A JS expression for disguise(fake, real): from then on toString prints `real` for `fake`."""
+    return _DISGUISE_JS % json.dumps(_DISGUISE_KEY)
+
+
+# Registered per tab and run at document start in every frame. `%(key)d` is the session key.
 # The per-site seed comes from the key and the top-level site, so frames inside a page
 # see the same values as the page itself (as Brave does) and a different site sees others.
 _FINGERPRINT_JS = r"""
 (() => {
   if (window.__liteFarbled) return;
   Object.defineProperty(window, '__liteFarbled', {value: true});
-  const KEY = %d;
+  const KEY = %(key)d;
   let top = location.hostname;
   try { const a = location.ancestorOrigins; if (a && a.length) top = new URL(a[a.length - 1]).hostname; } catch (e) {}
   const labels = top.split('.');
@@ -64,12 +96,7 @@ _FINGERPRINT_JS = r"""
   };
 
   // Wrapped functions still read as native code, so pages do not notice the wrapping.
-  const natives = new WeakMap();
-  const nativeToString = Function.prototype.toString;
-  Function.prototype.toString = function () {
-    return nativeToString.call(natives.get(this) || this);
-  };
-  natives.set(Function.prototype.toString, nativeToString);
+  const disguise = %(disguise)s;
   const wrap = (proto, name, make) => {
     if (!proto) return;
     const desc = Object.getOwnPropertyDescriptor(proto, name);
@@ -77,7 +104,7 @@ _FINGERPRINT_JS = r"""
     const original = desc.value;
     const wrapped = make(original);
     Object.defineProperty(wrapped, 'name', {value: name, configurable: true});
-    natives.set(wrapped, original);
+    disguise(wrapped, original);
     Object.defineProperty(proto, name, {...desc, value: wrapped});
   };
 
@@ -180,11 +207,24 @@ _FINGERPRINT_JS = r"""
     const real = cores.get.call(navigator) || 2;
     const fake = 2 + Math.floor(prng(0xc0de5)() * (real - 1));
     const getter = function hardwareConcurrency() { return fake; };
-    natives.set(getter, cores.get);
+    disguise(getter, cores.get);
     Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', {...cores, get: getter});
   }
 })();
 """
+
+
+# Sites whose sign-in bot check refuses a browser with script-level farbling. Twitch's (Kasada)
+# answered "Your browser is not currently supported" to Lite's farbling plus its ad fix, every
+# time; either one alone passed. Signed in, the site knows who you are anyway, and Shields
+# still block its ads and trackers.
+NO_FARBLING = ('twitch.tv',)
+
+
+def farbles(host: str) -> bool:
+    """Whether fingerprinting protection runs on pages of this site (with Shields up)."""
+    host = (host or '').lower()
+    return not any(host == d or host.endswith('.' + d) for d in NO_FARBLING)
 
 
 def new_session_key() -> int:
@@ -193,7 +233,7 @@ def new_session_key() -> int:
 
 
 def fingerprint_js(session_key: int) -> str:
-    return _FINGERPRINT_JS % session_key
+    return _FINGERPRINT_JS % {'key': session_key, 'disguise': disguise_js()}
 
 
 def strip_tracking(url: str) -> str:

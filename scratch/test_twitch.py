@@ -14,7 +14,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
-from browser import filters, twitch  # noqa: E402
+from browser import filters, privacy, twitch  # noqa: E402
 
 failures = 0
 
@@ -112,7 +112,77 @@ if 'error' not in out:
 
 check('the page script parses and wraps only the Twitch player worker',
       'new Proxy(RealWorker' in twitch.TWITCH_JS and 'amazon-ivs|wasmworker' in twitch.TWITCH_JS)
-check('it only runs on twitch.tv', twitch.applies('www.twitch.tv') and twitch.applies('player.twitch.tv')
+
+# Twitch's sign-in check refused Lite ("Your browser is not currently supported") while this
+# script and the fingerprinting one each stacked a toString wrapper on the page. Both real
+# scripts run here, in either order, against a stand-in for the page's built-ins.
+SHARED = r"""
+Error.stackTraceLimit = 100;
+const vm = require('vm');
+const nativeTS = Function.prototype.toString;
+const foreignTS = vm.runInNewContext('Function.prototype.toString');  // another realm's, untouched
+const depth = (ts) => { try { ts.call({}); } catch (e) { return e.stack.split('\n').length; } return -1; };
+const base = depth(nativeTS);
+const put = (name, value) => {
+  try { Object.defineProperty(globalThis, name, {value, configurable: true, writable: true}); } catch (e) { globalThis[name] = value; }
+};
+class HTMLCanvasElement { getContext() { return null; } toDataURL() { return 'data:,'; } toBlob() {} }
+class CanvasRenderingContext2D { getImageData() { return {data: new Uint8ClampedArray(4)}; } }
+class Navigator { get hardwareConcurrency() { return 8; } }
+put('window', globalThis);
+put('location', {hostname: 'www.twitch.tv', href: 'https://www.twitch.tv/login', ancestorOrigins: []});
+put('HTMLCanvasElement', HTMLCanvasElement);
+put('CanvasRenderingContext2D', CanvasRenderingContext2D);
+put('Navigator', Navigator);
+put('navigator', new Navigator());
+put('document', {createElement: () => new HTMLCanvasElement(), querySelector: () => null, cookie: ''});
+put('Worker', function Worker() {});
+put('BroadcastChannel', class { constructor() {} });
+const origWorker = Worker, origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+const origCores = Object.getOwnPropertyDescriptor(Navigator.prototype, 'hardwareConcurrency').get;
+__SCRIPTS__
+const ts = Function.prototype.toString;
+const cores = Object.getOwnPropertyDescriptor(Navigator.prototype, 'hardwareConcurrency').get;
+let constructible = true;
+try { Reflect.construct(String, [], ts); } catch (e) { constructible = false; }
+const f = function plain() { return 1; }, g = function other() {};
+const wrongKey = ts.call(f, 'not-the-key', g);
+console.log(JSON.stringify({
+  layers: depth(ts) - base,
+  worker: String(window.Worker) === nativeTS.call(origWorker) && window.Worker !== origWorker,
+  canvas: String(HTMLCanvasElement.prototype.toDataURL) === nativeTS.call(origToDataURL)
+    && HTMLCanvasElement.prototype.toDataURL !== origToDataURL,
+  cores: String(cores) === nativeTS.call(origCores) && cores !== origCores,
+  self: [ts.name, ts.length, constructible, Object.prototype.hasOwnProperty.call(ts, 'prototype'), String(ts)],
+  wrongKey: wrongKey === nativeTS.call(f) && String(f) === nativeTS.call(f),
+  keyHidden: !foreignTS.call(ts).includes(__KEY__),
+}));
+"""
+fp_js = privacy.fingerprint_js(privacy.new_session_key())
+for order, scripts in (('fingerprinting first', (fp_js, twitch.TWITCH_JS)),
+                       ('Twitch script first', (twitch.TWITCH_JS, fp_js))):
+    path = os.path.join(tempfile.mkdtemp(prefix='lite-twitch-'), 'shared.js')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(SHARED.replace('__KEY__', json.dumps(privacy._DISGUISE_KEY)).replace('__SCRIPTS__', ';\n'.join(scripts)))
+    r = subprocess.run([NODE, path], capture_output=True, text=True, timeout=60)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {'error': (r.stdout + r.stderr)[-600:]}
+    check(f'{order}: both scripts ran', 'error' not in got, got.get('error', ''))
+    if 'error' in got:
+        continue
+    check(f'{order}: one toString wrapper on the page, not two', got['layers'] == 1, str(got['layers']))
+    check(f'{order}: the wrapped Worker, canvas export and core count all print as the originals',
+          got['worker'] and got['canvas'] and got['cores'], str(got))
+    check(f'{order}: toString itself looks native (name, length, not a constructor)',
+          got['self'] == ['toString', 0, False, False, 'function toString() { [native code] }'], str(got['self']))
+    check(f'{order}: registering needs the session key, which the wrapper does not show',
+          got['wrongKey'] and got['keyHidden'], str(got))
+check('fingerprinting protection stays off on Twitch (its sign-in check refuses it) and on elsewhere',
+      not privacy.farbles('www.twitch.tv') and not privacy.farbles('twitch.tv') and not privacy.farbles('passport.twitch.tv')
+      and privacy.farbles('www.example.com') and privacy.farbles('nottwitch.tv') and privacy.farbles('twitch.tv.evil.example'))
+check('it only runs on twitch.tv',twitch.applies('www.twitch.tv') and twitch.applies('player.twitch.tv')
       and not twitch.applies('nottwitch.tv') and not twitch.applies('twitch.tv.evil.example'))
 f = filters.Filters.__new__(filters.Filters)  # just the scriptlet part, no engine needed
 f._add, f._except, f._names, f._code, f._scripts = {}, {}, {}, [], {}

@@ -428,8 +428,9 @@ class Tab:
                 return stop(lambda: self.navigate(clean))
             # Start-up scripts (this site's scriptlets, fingerprinting protection on or off) must
             # be in place before the navigation begins: register them, then open the page again.
+            farble = up and privacy.farbles(host)
             if str(args.NavigationKind) != 'BackOrForward' and (
-                    up != (self.fp_script is not None) or (up and self._needs_site_script(host))):
+                    farble != (self.fp_script is not None) or (up and self._needs_site_script(host))):
                 args.Cancel = True
                 self._deny(url)
 
@@ -437,7 +438,7 @@ class Tab:
                     if token == self.scan_token:
                         self.navigate(url)
                 if up:
-                    self._set_fingerprinting(True, then=lambda: self._add_site_script(host, then=reopen))
+                    self._set_fingerprinting(farble, then=lambda: self._add_site_script(host, then=reopen))
                 else:
                     self._set_fingerprinting(False, then=reopen)
                 return

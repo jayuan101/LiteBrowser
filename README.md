@@ -21,7 +21,9 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   and the CPU core count are subtly randomized per site and per session, so a
   site cannot recognise you across sites or across restarts. Private tabs use
   their own key. The Shields panel shows how many scripts were fed randomized
-  values; turning Shields off for a site turns this off too.
+  values; turning Shields off for a site turns this off too. It stays off on
+  Twitch, whose sign-in check refuses a browser that does this ("Your browser
+  is not currently supported"); signed in, Twitch knows who you are anyway.
 - **Private tabs** (Ctrl+Shift+N) keep nothing once closed.
 - **Auto cookie deletion.** Every 30 seconds Lite deletes the cookies of sites
   you have not starred and that are not open in a tab. Sites you star (Ctrl+D)
