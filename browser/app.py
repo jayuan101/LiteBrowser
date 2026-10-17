@@ -16,9 +16,12 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import autofill, default_browser, filters, guard, importer, instance, privacy, search as search_mod, updater
+from . import (
+    autofill, default_browser, extensions, filters, guard, importer, instance, privacy, search as search_mod, updater,
+)
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner, fallback_path
+from .engine import Engine
 from .passwords import Passwords
 from .popup import Popup
 from .scanner import FableScanner
@@ -26,13 +29,13 @@ from .stats import Stats
 from .store import Bookmarks, History, Session, Settings, host_keeps_cookie
 from .tab import Tab, to_url
 from .webview2 import (
-    Action, ApartmentState, CoreWebView2CreationProperties, CoreWebView2MemoryUsageTargetLevel,
+    Action, ApartmentState, CoreWebView2MemoryUsageTargetLevel,
     CoreWebView2PrintDialogKind, Drawing, Drawing2D,
     String, System, Task, TaskScheduler, Thread, ThreadStart, WebView2, WinForms,
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.8'
+APP_VERSION = '0.2.9'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -142,6 +145,8 @@ class App:
         self.settings = Settings(os.path.join(self.data_dir, 'settings.json'))
         self.passwords = Passwords(os.path.join(self.data_dir, 'passwords.json'))
         self.session = Session(os.path.join(self.data_dir, 'session.json'))
+        self.extensions = extensions.Extensions(os.path.join(self.data_dir, 'extensions'))
+        self.ext_note = ''  # the last extension add/update/remove result, shown on the settings page
         self.import_note = ''  # result of the last bookmark/password import, shown on the library page
         self.antivirus = AntivirusScanner()
         self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
@@ -193,16 +198,15 @@ class App:
         f.BackColor = Drawing.Color.FromArgb(255, *STRIP)
         f.Icon = _app_icon()
         f.FormClosed += self._on_closed
+        # The form exists, so this thread has its WinForms context: the shared WebView2 environment
+        # can be created now, and every WebView below joins it once it is there.
+        self.engine = Engine(self.profile_dir, self.browser_args)
 
         self.content = WinForms.Panel()
         self.content.Dock = WinForms.DockStyle.Fill
         self.content.BackColor = Drawing.Color.FromArgb(255, 16, 18, 22)
 
         self.chrome = WebView2()
-        props = CoreWebView2CreationProperties()
-        props.UserDataFolder = self.profile_dir
-        props.AdditionalBrowserArguments = self.browser_args
-        self.chrome.CreationProperties = props
         self.chrome.Dock = WinForms.DockStyle.Top
         self.chrome.DefaultBackgroundColor = f.BackColor
         self.chrome.CoreWebView2InitializationCompleted += self._on_chrome_ready
@@ -217,9 +221,9 @@ class App:
         _dwm(hwnd, DWMWA_TEXT_COLOR, _colorref((236, 238, 242)))
         self._size_chrome()
         f.DpiChanged += lambda s, e: self._size_chrome()
-        self.chrome.EnsureCoreWebView2Async(None)
+        self.engine.attach(self.chrome)
 
-        self.popup = Popup(f, self.profile_dir, self.browser_args, self._on_panel_message)
+        self.popup = Popup(f, self.engine, self._on_panel_message)
         f.Activated += lambda s, e: self.popup.hide()  # back in the browser window: close any panel
         self.ui_timer = WinForms.Timer()
         self.ui_timer.Interval = 50  # UI updates are batched: pages can block hundreds of requests a second
@@ -250,6 +254,7 @@ class App:
         core.ContextMenuRequested += self._chrome_menu
         with open(os.path.join(UI_DIR, 'chrome.html'), encoding='utf-8') as fh:
             core.NavigateToString(fh.read())
+        self._sync_extensions()
 
     @staticmethod
     def _lock_chrome(sender, args):
@@ -400,7 +405,7 @@ class App:
 
     def _ui_state(self) -> dict:
         tab = self.current
-        on_site = bool(tab and tab.host and not tab.builtin)
+        on_site = bool(tab and tab.host and not tab.builtin and not tab.url.startswith('chrome-extension://'))
         return {
             'tabs': [{'id': t.id, 'title': t.title, 'favicon': t.favicon, 'loading': t.loading, 'private': t.private,
                       'audible': t.audible, 'muted': t.muted, 'builtin': t.builtin, 'pinned': t.pinned} for t in self.tabs],
@@ -531,7 +536,8 @@ class App:
             tab = self.current
             data = {'cookies': bool(self.settings.get('auto_delete_cookies', True)),
                     'reader': bool(tab and (tab.reader_source or (tab.host and not tab.builtin))),
-                    'pinned': bool(tab and not tab.builtin and tab.pinned)}
+                    'pinned': bool(tab and not tab.builtin and tab.pinned),
+                    'store': bool(tab and not tab.private and self._store_page(tab.url))}
             self.popup.show('menu', data, anchor or self._anchor())
 
     def _menu(self, item: str):
@@ -568,6 +574,21 @@ class App:
             tab.webview.CoreWebView2.OpenDevToolsWindow()
         elif item == 'clear-yes':
             self._clear_browsing_data()
+        elif item == 'extensions':
+            self.show_settings('extensions')
+        elif item == 'addext' and tab and self._store_page(tab.url):
+            self.add_extension(tab.url)  # the store's own "Add to Chrome" cannot reach Lite
+            self.show_settings('extensions')
+
+    @staticmethod
+    def _store_page(url: str) -> bool:
+        """An extension's page in the Chrome Web Store."""
+        try:
+            p = urlparse(url or '')
+        except ValueError:
+            return False
+        return (p.hostname in ('chromewebstore.google.com', 'chrome.google.com') and '/detail/' in p.path
+                and bool(extensions.parse_id(p.path)))
 
     def _clear_browsing_data(self):
         """Cookies, site data, cache and history of normal tabs, and Lite's own memory of visited sites."""
@@ -781,14 +802,15 @@ class App:
         except Exception:
             pass
 
-    def show_settings(self):
+    def show_settings(self, focus: str = ''):
+        """focus: a section to scroll to, e.g. 'extensions'."""
         tab = self.current
         if tab is None:
             return
         if not tab.builtin:  # keep the page you were on: settings open in their own tab
             self.new_tab(None)
             tab = self.current
-        tab.show_settings()
+        tab.show_settings(focus)
         tab.webview.Focus()
 
     # ---- passwords: offered after you sign in, filled from the key button ---
@@ -915,6 +937,192 @@ class App:
         tab.webview.CoreWebView2.CallDevToolsProtocolMethodAsync(
             'Page.navigateToHistoryEntry', json.dumps({'entryId': entry_id}))
         tab.webview.Focus()
+
+    # ---- extensions (extensions.py fetches and verifies, WebView2 runs them) --
+    def _then(self, task, fn):
+        """fn(task) on the UI thread once a WebView2 call has finished (result or error read off task)."""
+        task.ContinueWith(Action[Task](lambda _t: fn(task)), self.scheduler)
+
+    def _browser_version(self) -> str:
+        try:
+            return str(self.engine.env.BrowserVersionString).split()[0]
+        except Exception:
+            return '140.0.0.0'
+
+    def _profile(self):
+        core = self.chrome.CoreWebView2  # the toolbar uses the normal profile: the one extensions run in
+        return core.Profile if core is not None and self.engine.extensions else None
+
+    def _sync_extensions(self):
+        """Start-up: WebView2 keeps the extensions it was given, but drops one whose files changed -
+        bring those back, adopt the on/off state it remembers, then check for new versions."""
+        profile = self._profile()
+        if profile is None:
+            return
+        task = profile.GetBrowserExtensionsAsync()
+
+        def done(t):
+            loaded = {} if t.IsFaulted else {str(e.Id): e for e in t.Result}
+            for ext_id, entry in list(self.extensions.items.items()):
+                if ext_id in loaded:
+                    entry['enabled'] = bool(loaded[ext_id].IsEnabled)
+                elif os.path.isdir(entry['folder']):
+                    self._load_extension(entry, quiet=True)
+            if self.extensions.due_for_update_check():
+                threading.Thread(target=self._update_extensions, args=(self._browser_version(),), daemon=True).start()
+        self._then(task, done)
+
+    def _with_extension(self, ext_id: str, fn):
+        """fn(WebView2's extension object, or None) for one installed extension."""
+        profile = self._profile()
+        if profile is None:
+            fn(None)
+            return
+        task = profile.GetBrowserExtensionsAsync()
+        self._then(task, lambda t: fn(None if t.IsFaulted else next((e for e in t.Result if str(e.Id) == ext_id), None)))
+
+    def _extension_note(self, note: str):
+        self.ext_note = note
+        self._refresh_settings_pages(focus='extensions')
+
+    def _load_extension(self, entry: dict, quiet: bool = False, updated: bool = False, fallback: dict | None = None):
+        """Hand an unpacked extension to WebView2; on success it is remembered (and runs from now on)."""
+        profile = self._profile()
+        if profile is None:
+            return
+        task = profile.AddBrowserExtensionAsync(entry['folder'])
+
+        def done(t):
+            if t.IsFaulted:
+                reason = str(t.Exception.InnerException.Message if t.Exception.InnerException else t.Exception)
+                print('extension failed to load:', entry['folder'], reason)
+                if fallback:  # an update that does not load: keep the version that worked
+                    self._load_extension(fallback, quiet=True)
+                elif not quiet:
+                    self.extensions.discard(entry['folder'])
+                if not quiet:
+                    self._extension_note(f"Couldn't add {entry['name']}: {reason.strip()[:160]}")
+                return
+            ext = t.Result
+            ext_id = str(ext.Id)
+            old = self.extensions.items.get(ext_id)
+            self.extensions.items[ext_id] = dict(entry, id=ext_id)
+            self.extensions.save()
+            if old and old['folder'] != entry['folder']:
+                self.extensions.discard(old['folder'])  # the version this one replaces
+            if not entry.get('enabled', True):
+                ext.EnableAsync(False)
+            if not quiet:
+                verb = 'Updated' if updated else 'Added'
+                self._extension_note(f"{verb} {entry['name']} {entry['version']} - reload a page to see it there.")
+        self._then(task, done)
+
+    def add_extension(self, text: str):
+        """A Chrome Web Store link (or ID) from the settings page or the menu."""
+        ext_id = extensions.parse_id(text)
+        if not self.engine.extensions:
+            self._extension_note('This WebView2 cannot run extensions - update the Microsoft Edge WebView2 '
+                                 'Runtime and restart Lite.')
+        elif not ext_id:
+            self._extension_note('Paste the link of an extension in the Chrome Web Store '
+                                 '(chromewebstore.google.com/detail/...).')
+        elif ext_id in self.extensions.items:
+            self._extension_note(f"{self.extensions.items[ext_id]['name']} is added already.")
+        else:
+            self._extension_note('Adding the extension...')
+            threading.Thread(target=self._fetch_extension, args=(ext_id, self._browser_version()), daemon=True).start()
+
+    def _fetch_extension(self, ext_id: str, version: str):
+        """Worker thread: download, check the signature, unpack - then WebView2 loads it."""
+        try:
+            entry = self.extensions.fetch(ext_id, version)
+        except Exception as e:
+            traceback.print_exc()
+            why = extensions.explain(e)
+            self.later(lambda: self._extension_note(f"Couldn't add it: {why}."))
+            return
+        self.later(lambda: self._load_extension(entry))
+
+    def add_extension_folder(self):
+        """An unpacked extension (a folder with manifest.json), e.g. a developer build."""
+        if not self.engine.extensions:
+            self.add_extension('')  # says why not
+            return
+        dialog = WinForms.FolderBrowserDialog()
+        dialog.Description = "Pick the extension's folder - the one with manifest.json in it"
+        if dialog.ShowDialog(self.form) != WinForms.DialogResult.OK:
+            return
+        try:
+            entry = self.extensions.copy_folder(str(dialog.SelectedPath))
+        except (OSError, ValueError) as e:
+            self._extension_note(f"Couldn't add that folder: {extensions.explain(e)}.")
+            return
+        self._load_extension(entry)
+
+    def toggle_extension(self, ext_id: str, on: bool):
+        def toggle(ext):
+            entry = self.extensions.items.get(ext_id)
+            if ext is None or entry is None:
+                return
+            def done(t):
+                if not t.IsFaulted:
+                    entry['enabled'] = bool(on)
+                    self.extensions.save()
+                self._extension_note(f"{entry['name']} is {'on' if on else 'off'}"
+                                     + (' - reload a page to see it there.' if on else ' - reload open pages to remove it there.'))
+            self._then(ext.EnableAsync(bool(on)), done)
+        self._with_extension(ext_id, toggle)
+
+    def remove_extension(self, ext_id: str):
+        def remove(ext):
+            def forget(_t=None):
+                entry = self.extensions.forget(ext_id)
+                self._extension_note(f"Removed {entry['name']}." if entry else '')
+            if ext is None:
+                forget()
+            else:
+                self._then(ext.RemoveAsync(), forget)
+        self._with_extension(ext_id, remove)
+
+    def open_extension_page(self, ext_id: str, which: str):
+        """An extension's pop-up or options page, in a tab of its own (WebView2 has no toolbar for them)."""
+        entry = self.extensions.items.get(ext_id)
+        page = entry.get(which) if entry and which in ('popup', 'options') else ''
+        if page:
+            self.new_tab(f'chrome-extension://{ext_id}/{page.lstrip("/")}')
+
+    def _update_extensions(self, version: str):
+        """Worker thread, once a day: a newer version from the store replaces the installed one."""
+        for ext_id, entry in list(self.extensions.items.items()):
+            if entry.get('source') != 'store':
+                continue
+            try:
+                if extensions.latest_version(entry.get('store_id', ext_id), entry['version'], version):
+                    new = self.extensions.fetch(entry.get('store_id', ext_id), version)
+                    self.later(lambda i=ext_id, e=new, old=dict(entry): self._replace_extension(i, e, old))
+            except Exception:
+                traceback.print_exc()  # offline or the store is slow: tomorrow's check tries again
+
+        def checked():
+            self.extensions.checked = time.time()
+            self.extensions.save()
+        self.later(checked)
+
+    def _replace_extension(self, ext_id: str, entry: dict, old: dict):
+        entry['enabled'] = old.get('enabled', True)
+
+        def replace(ext):
+            add = lambda _t=None: self._load_extension(entry, updated=True, fallback=old)  # noqa: E731
+            if ext is None:
+                add()
+            else:
+                self._then(ext.RemoveAsync(), add)
+        self._with_extension(ext_id, replace)
+
+    def _extensions_data(self) -> list[dict]:
+        return [{'id': ext_id, 'name': e['name'], 'version': e['version'], 'enabled': e.get('enabled', True),
+                 'popup': bool(e.get('popup')), 'options': bool(e.get('options')), 'source': e.get('source', 'store')}
+                for ext_id, e in sorted(self.extensions.items.items(), key=lambda kv: kv[1]['name'].lower())]
 
     # ---- zoom, closed tabs, pinned tabs ------------------------------------
     def zoom_for(self, host: str) -> float:
@@ -1071,11 +1279,11 @@ class App:
             if t.builtin and not t.url and not t.pending_url:
                 t.show_new_tab()
 
-    def _refresh_settings_pages(self):
-        """Open settings pages pick up the Check button's answer."""
+    def _refresh_settings_pages(self, focus: str = ''):
+        """Open settings pages pick up the Check button's answer (or an extension's news)."""
         for t in list(self.tabs):
             if t.builtin and t.title == 'Settings':
-                t.show_settings()
+                t.show_settings(focus)
 
     def _start_download(self):
         self.update_state = {'phase': 'downloading'}

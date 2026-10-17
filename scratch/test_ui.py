@@ -275,6 +275,22 @@ with open(os.path.join(ROOT, 'browser', 'ui', 'chrome.html'), encoding='utf-8') 
 check('toolbar has the key button and the back/forward lists',
       'id="key"' in chrome and "ui: 'key'" in chrome and "ui: 'navlist'" in chrome and 'contextmenu' in chrome)
 
+# ---- extensions on the settings page and in the menu -----------------------------------
+ext = [{'id': 'fadndhdgpmmaapbmfcknlfgcflmmmieb', 'name': 'Frank<er>FaceZ', 'version': '4.82', 'enabled': False,
+        'popup': True, 'options': False, 'source': 'store'}]
+st_ext = pages.settings_html(False, True, 45, False, '0.2.9', extensions=ext, ext_note='Added <b>', focus='extensions')
+scripts_ok('settings page with an extension listed', st_ext)
+check('settings: the extension row is escaped, off, with Open but no Options, and Remove',
+      'Frank&lt;er&gt;FaceZ' in st_ext and '- off' in st_ext and 'data-x=popup' in st_ext and 'data-x=options' not in st_ext
+      and 'data-x=remove' in st_ext and '<button class="tog" data-x=toggle' in st_ext and 'Added &lt;b&gt;' in st_ext)
+check('settings: the add box and its commands', all(s in st_ext for s in ("id=ext-link", "cmd:'extadd'", "cmd:'extfolder'",
+                                                                          "cmd:'exttoggle'", "cmd:'extremove'", "cmd:'extopen'")))
+check('settings: only switches with a key send settings', "button.tog[data-k]" in st_ext)
+check('settings: says when WebView2 cannot run extensions',
+      'cannot run extensions' in pages.settings_html(False, True, 45, False, '0.2.9', ext_supported=False)
+      and 'id=ext-link' not in pages.settings_html(False, True, 45, False, '0.2.9', ext_supported=False))
+check('menu: Extensions, and Add on a Web Store page', "'extensions', I.puzzle" in panel and "d.store ? ['addext'" in panel)
+
 key = privacy.new_session_key()
 scripts_ok('fingerprinting script', f'<script>{privacy.fingerprint_js(key)}</script>')
 check('session keys differ between sessions (and private tabs)', key != privacy.new_session_key())

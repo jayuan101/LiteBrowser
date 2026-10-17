@@ -8,14 +8,14 @@ import json
 import os
 import time
 
-from .webview2 import CoreWebView2CreationProperties, Drawing, WebView2, WinForms
+from .webview2 import Drawing, WebView2, WinForms
 
 UI_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'ui')
 DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND = 33, 2
 
 
 class Popup:
-    def __init__(self, owner, profile_dir: str, browser_args: str, on_message):
+    def __init__(self, owner, engine, on_message):
         self.owner = owner
         self.on_message = on_message  # gets every {panel: ...} message except size/ready/close
         self.view = None
@@ -35,10 +35,6 @@ class Popup:
         f.Deactivate += lambda s, e: self.hide()
 
         self.webview = WebView2()
-        props = CoreWebView2CreationProperties()
-        props.UserDataFolder = profile_dir
-        props.AdditionalBrowserArguments = browser_args
-        self.webview.CreationProperties = props
         self.webview.DefaultBackgroundColor = f.BackColor
         self.webview.Dock = WinForms.DockStyle.Fill
         f.Controls.Add(self.webview)
@@ -49,7 +45,7 @@ class Popup:
         corner = ctypes.c_int(DWMWCP_ROUND)
         ctypes.windll.dwmapi.DwmSetWindowAttribute(int(f.Handle.ToInt64()), DWMWA_WINDOW_CORNER_PREFERENCE,
                                                    ctypes.byref(corner), ctypes.sizeof(corner))
-        self.webview.EnsureCoreWebView2Async(None)
+        engine.attach(self.webview)
 
     @property
     def visible(self) -> bool:

@@ -20,7 +20,7 @@ from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 from . import autofill, default_browser, filters, guard, pages, privacy, search
 from .scanner import COLLECT_JS
 from .webview2 import (
-    Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel,
+    Action, CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel,
     CoreWebView2WebResourceContext,
     Drawing, Keys, MemoryStream, Stream, String, System, Task, TaskScheduler, WebView2, WinForms,
 )
@@ -39,7 +39,7 @@ def to_url(text: str, search_url: str = SEARCH_URL) -> str:
     if not text:
         return 'about:blank'
     p = urlparse(text)
-    if p.scheme in ('http', 'https', 'about', 'edge', 'file', 'javascript', 'data'):
+    if p.scheme in ('http', 'https', 'about', 'edge', 'file', 'javascript', 'data', 'chrome-extension'):
         return text
     looks_like_host = ' ' not in text and ('.' in text or text.startswith('localhost'))
     if looks_like_host:
@@ -86,11 +86,6 @@ class Tab:
         self.app = app
         self.private = private
         self.webview = WebView2()
-        props = CoreWebView2CreationProperties()
-        props.UserDataFolder = app.profile_dir
-        props.AdditionalBrowserArguments = app.browser_args
-        props.IsInPrivateModeEnabled = private  # nothing from private tabs is kept once the last one closes
-        self.webview.CreationProperties = props
         self.webview.Dock = WinForms.DockStyle.Fill
         self.webview.Visible = False
         self.webview.DefaultBackgroundColor = Drawing.Color.White  # what pages without a background expect
@@ -143,7 +138,7 @@ class Tab:
         self.webview.SourceChanged += self._on_source_changed
         self.webview.WebMessageReceived += self._on_web_message
         self.webview.KeyDown += self._on_key_down  # WinForms WebView2 forwards accelerator keys here
-        self.webview.EnsureCoreWebView2Async(None)
+        app.engine.attach(self.webview, private)  # private: nothing is kept once the last private tab closes
 
     # ---- lifecycle -------------------------------------------------------
     def _on_ready(self, sender, args):
@@ -253,9 +248,9 @@ class Tab:
                                               passwords=self.app.passwords.items(), note=note))
         self.app.refresh_chrome(self)
 
-    def show_settings(self):
+    def show_settings(self, focus: str = ''):
         if self.webview.CoreWebView2 is None:  # a just-created tab: render when the core is ready
-            self.pending_builtin = lambda: self.show_settings()
+            self.pending_builtin = lambda: self.show_settings(focus)
             return
         self.sleep_url = None
         self.reader_source = None
@@ -273,7 +268,11 @@ class Tab:
                                                default_browser.is_default(),
                                                s.get('restore_tabs', True),
                                                s.get('password_manager', True),
-                                               len(s.get('password_never', []))))
+                                               len(s.get('password_never', [])),
+                                               extensions=self.app._extensions_data(),
+                                               ext_note=self.app.ext_note,
+                                               ext_supported=self.app.engine.extensions,
+                                               focus=focus))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):
@@ -400,7 +399,8 @@ class Tab:
             query = unquote_plus(url[len(search.LITE_PREFIX):]).strip()
             return stop(lambda: app.search_results(self, query))
 
-        if url not in app.allowed_once:
+        extension_page = url.startswith('chrome-extension://')  # an extension's own page: no Shields on it
+        if url not in app.allowed_once and not extension_page:
             verdict = guard.check_navigation(url)
             if verdict.level == 'block':
                 return stop(lambda: self.show_block_page(url, verdict.reason, 'block'))
@@ -417,7 +417,7 @@ class Tab:
                 app.https_attempted[host] = url
                 return stop(lambda: self.navigate('https://' + url[len('http://'):]))
 
-        up = app.blocker.shields_up(host)
+        up = app.blocker.shields_up(host) and not extension_page
         if not args.RequestHeaders.Contains('Content-Type'):  # not a form POST, so it can be re-opened
             clean = privacy.strip_tracking(url) if up else url
             if clean != url:
@@ -649,7 +649,8 @@ class Tab:
             if context == 'Document' and self.denied.pop(url.split('#', 1)[0], None) is not None:
                 args.Response = sender.Environment.CreateWebResourceResponse(None, 403, 'Blocked', '')
                 return  # a page Lite stopped (warning page, tracking link, re-opened for scriptlets)
-            if not (context == 'Document' and url.split('#', 1)[0] == self.nav_url.split('#', 1)[0]):
+            if not (context == 'Document' and url.split('#', 1)[0] == self.nav_url.split('#', 1)[0]) \
+                    and not self.nav_url.startswith('chrome-extension://'):
                 blocked, stub = self.app.blocker.check(url, self.nav_url, filters.REQUEST_TYPES.get(context, 'other'))
                 if blocked:
                     env = sender.Environment
@@ -746,6 +747,16 @@ class Tab:
             self.app.update_now()  # over the air: check, download, restart - never a releases page
         elif cmd == 'setdefault':
             self.app.set_default_browser()
+        elif cmd == 'extadd':
+            self.app.add_extension(str(msg.get('text', ''))[:2000])
+        elif cmd == 'extfolder':
+            self.app.add_extension_folder()
+        elif cmd == 'exttoggle':
+            self.app.toggle_extension(str(msg.get('id', '')), bool(msg.get('on')))
+        elif cmd == 'extremove':
+            self.app.remove_extension(str(msg.get('id', '')))
+        elif cmd == 'extopen':
+            self.app.open_extension_page(str(msg.get('id', '')), str(msg.get('page', '')))
         elif cmd == 'update':
             self.app.update_now()
 

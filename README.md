@@ -49,9 +49,11 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Pin tab** (Ctrl+Shift+P or the menu): a pinned tab never sleeps, so a site
   you keep around stays exactly where it is - at the cost of keeping its
   renderer alive (~30 MB per pinned site).
-- **Settings page** (Ctrl+, or the menu): every switch in one place - cookie
-  auto-deletion, tab sleeping and its delay, the update check, plus a button
-  that wipes all cookies right away. Changes apply immediately and are saved.
+- **Settings page** (Ctrl+, or the menu): every switch in one place - search
+  engine, cookie auto-deletion, tab sleeping and its delay, reopening tabs,
+  passwords, extensions, the bookmarks bar, high performance mode, updates and
+  the default browser, plus a button that wipes all cookies right away.
+  Changes apply immediately and are saved.
 - **Bookmarks and history** (Ctrl+D to star, Ctrl+H for history, or the
   library button): one searchable, built-in page manages both.
 - **Bookmarks bar** (toggle in Settings): your starred pages in a row under
@@ -66,6 +68,16 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   also import a CSV exported from another browser's password manager.
   Passwords are encrypted with Windows DPAPI to your account, never shown on
   screen and never sent anywhere.
+- **Chrome extensions** (Settings > Extensions, or the menu): paste an
+  extension's Chrome Web Store link - FrankerFaceZ, Dark Reader, SponsorBlock -
+  or, on its store page, pick "Add this extension to Lite" in the menu. Lite
+  downloads it from Google's update service (where Chrome gets it), checks the
+  developer's signature against the extension's ID, unpacks it into the
+  profile and keeps it up to date once a day. Turn each one on or off, or
+  remove it, in Settings. Extensions run in normal tabs, not in private ones.
+  WebView2 draws no toolbar buttons for extensions, so an extension's pop-up
+  and options page open as a tab (Open / Options in Settings). An unpacked
+  extension folder can be added too ("From a folder...").
 - **Reader mode** (the book button or View menu): an article page re-rendered
   as clean text with no layout, fonts or scripts from the site.
 - **Make Lite the default browser** (Settings > System): registers Lite's
@@ -141,6 +153,8 @@ and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 | `browser/autofill.py` | The sign-in page script, and the script that fills a chosen login |
 | `browser/twitch.py` | Twitch's video ads, which are stitched into the stream |
 | `browser/instance.py` | One Lite per profile: later starts hand their links over |
+| `browser/engine.py` | The one WebView2 environment every WebView joins, with extensions switched on |
+| `browser/extensions.py` | Chrome Web Store extensions: download, signature check, unpack, updates |
 | `browser/updater.py` | GitHub release update check |
 | `browser/pages.py` | Built-in new tab, reader, find bar, library and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |

@@ -305,10 +305,30 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
                   engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
                   bookmarks_bar: bool = True, update_note: str = '', performance: bool = False,
                   default_ok: bool = False, restore_tabs: bool = True, passwords: bool = True,
-                  never_sites: int = 0) -> str:
-    """Everything Lite can be tuned for, with switches that take effect right away."""
+                  never_sites: int = 0, extensions: list[dict] | None = None, ext_note: str = '',
+                  ext_supported: bool = True, focus: str = '') -> str:
+    """Everything Lite can be tuned for, with switches that take effect right away.
+    focus: the id of a section to scroll to (the menu's Extensions item opens there)."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
+    rows = ''.join(
+        f'<div class=set data-ext={_js_str(e["id"])}><div class=txt><div>{escape(e["name"])} '
+        f'<span class=ver>v{escape(e["version"])}</span></div>'
+        f'<small>{"From the Chrome Web Store" if e.get("source") == "store" else "From a folder"}'
+        f'{"" if e.get("enabled", True) else " - off"}</small></div>'
+        + ('<button class="act link" data-x=options>Options</button>' if e.get('options') else '')
+        + ('<button class="act link" data-x=popup>Open</button>' if e.get('popup') else '')
+        + f'<button class=act data-x=remove>Remove</button>'
+        f'<button class="tog{" on" if e.get("enabled", True) else ""}" data-x=toggle aria-label="toggle"></button></div>'
+        for e in (extensions or []))
+    if ext_supported:
+        ext_add = ('<div class=set><input class=min id=ext-link placeholder="Paste a link from the Chrome Web Store" '
+                   'style="flex:1;width:auto;text-align:left"><button class=act id=ext-add>Add</button>'
+                   '<button class="act link" id=ext-folder>From a folder...</button></div>')
+    else:
+        ext_add = ('<div class=set><small>This copy of the Microsoft Edge WebView2 Runtime cannot run extensions. '
+                   'Update it (it updates with Microsoft Edge) and restart Lite.</small></div>')
+    ext_note_html = f'<div class=set><small id=ext-note>{escape(ext_note)}</small></div>' if ext_note else ''
     sites = '1 site' if never_sites == 1 else f'{never_sites} sites'
     never = (f'<div class=set><div class=txt><div>Sites you said "Never" to</div>'
              f'<small>Lite does not offer to save passwords on {sites}.</small></div>'
@@ -355,6 +375,14 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <button class="tog{' on' if performance else ''}" data-k=performance_mode aria-label="toggle"></button></div>
 </section>
 
+<section id=extensions><h2>Extensions</h2>
+<div class=set><div class=txt><div>Chrome extensions</div>
+<small>Add one from the Chrome Web Store - FrankerFaceZ, Dark Reader, SponsorBlock... Lite checks its signature, keeps it up to date, and runs it in normal tabs (not private ones). An ad blocker is not needed: Shields already are one.</small></div></div>
+{rows}
+{ext_add}
+{ext_note_html}
+</section>
+
 <section><h2>Bookmarks</h2>
 <div class=set><div class=txt><div>Show the bookmarks bar</div>
 <small>Your starred pages in a row under the toolbar. Left-click opens, middle-click opens a new tab.</small></div>
@@ -383,7 +411,7 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 </div>
 <script>
 function set(key, value){{window.chrome.webview.postMessage({{cmd:'settings',key:key,value:value}})}}
-for(const b of document.querySelectorAll('button.tog')){{
+for(const b of document.querySelectorAll('button.tog[data-k]')){{
   b.addEventListener('click',()=>{{b.classList.toggle('on');set(b.dataset.k,b.classList.contains('on'))}})}}
 const m=document.getElementById('sleep-min');
 document.querySelector('[data-k=tab_sleep]').addEventListener('click',()=>{{m.disabled=!document.querySelector('[data-k=tab_sleep]').classList.contains('on')}});
@@ -398,6 +426,21 @@ document.getElementById('rel').addEventListener('click',()=>window.chrome.webvie
 document.getElementById('setdefault').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'setdefault'}}));
 const nr=document.getElementById('never-reset');
 if(nr)nr.addEventListener('click',()=>set('password_never',[]));
+const post=(m)=>window.chrome.webview.postMessage(m);
+const link=document.getElementById('ext-link');
+const add=()=>{{if(link.value.trim())post({{cmd:'extadd',text:link.value.trim()}})}};
+if(link){{link.addEventListener('keydown',e=>{{if(e.key==='Enter')add()}});
+  document.getElementById('ext-add').addEventListener('click',add);
+  document.getElementById('ext-folder').addEventListener('click',()=>post({{cmd:'extfolder'}}))}}
+document.getElementById('extensions').addEventListener('click',e=>{{
+  const b=e.target.closest('[data-x]'),row=e.target.closest('[data-ext]');if(!b||!row)return;
+  const id=row.dataset.ext,x=b.dataset.x;
+  if(x==='toggle'){{b.classList.toggle('on');post({{cmd:'exttoggle',id,on:b.classList.contains('on')}})}}
+  else if(x==='remove'){{if(b.classList.contains('armed'))post({{cmd:'extremove',id}});
+    else{{b.classList.add('armed');b.textContent='Click again to remove'}}}}
+  else post({{cmd:'extopen',id,page:x}})}});
+const focus={_js_str(focus)};
+if(focus&&document.getElementById(focus))document.getElementById(focus).scrollIntoView({{block:'start'}});
 </script></body></html>"""
 
 
