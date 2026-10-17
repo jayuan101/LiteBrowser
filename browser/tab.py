@@ -17,7 +17,7 @@ import traceback
 from collections import Counter
 from urllib.parse import quote_plus, unquote, unquote_plus, urlparse
 
-from . import default_browser, filters, guard, pages, privacy, search
+from . import autofill, default_browser, filters, guard, pages, privacy, search
 from .scanner import COLLECT_JS
 from .webview2 import (
     Action, CoreWebView2CreationProperties, CoreWebView2FaviconImageFormat, CoreWebView2MemoryUsageTargetLevel,
@@ -31,6 +31,7 @@ DANGEROUS = ('This site is on the malware and scam lists Lite uses (URLhaus and 
              'risks"). It may try to install malware, steal passwords or trick you into paying.')
 AD_PAGE = ('{host} is an ad or tracking server, not a normal website. Ads and tracked links often pass through '
            'servers like this before sending you on to the real page.')
+SAVE_OFFER_SECONDS = 300  # how long the key button keeps offering to save a password you signed in with
 
 
 def to_url(text: str, search_url: str = SEARCH_URL) -> str:
@@ -77,7 +78,9 @@ def _stub_response(env, data_url: str):
 class Tab:
     _ids = 0
 
-    def __init__(self, app, url: str | None, private: bool = False):
+    def __init__(self, app, url: str | None, private: bool = False, asleep: bool = False, title: str = ''):
+        """asleep: a tab brought back from the last session - it waits with its title and address
+        and only loads the page when you look at it."""
         Tab._ids += 1
         self.id = Tab._ids
         self.app = app
@@ -121,7 +124,18 @@ class Tab:
         self.last_active = time.time()  # background idle time, for tab sleeping
         self.reader_source: str | None = None  # the real page's URL while reader view is shown
         self.library_view = ''  # which section of the bookmarks/history page is shown
+        self.login_script: str | None = None  # id of the registered LOGIN_JS; None while passwords are off
+        self.login_fields = ''  # 'password' / 'username' while the page shows sign-in fields
+        self.login_user: tuple[str, str] | None = None  # (origin, username) typed on an earlier sign-in step
+        self.login_candidate: dict | None = None  # what you just signed in with, until the sign-in form goes
+        self.save_pending: dict | None = None  # the key button's offer to save it
+        self.request_hosts: set[str] = set()  # sites this page loads from: their cookies stay while it is open
+        self.twitch_player = False  # twitch.py wrapped this page's video player
+        self.twitch_ads = 0  # Twitch ad breaks skipped on this page
         self.scheduler = TaskScheduler.FromCurrentSynchronizationContext()
+        self.restore_asleep = bool(asleep and url)  # until the core is ready: then rest() or load
+        if self.restore_asleep:
+            self.url, self.title, self.loading = url, title or url, False
 
         self.webview.CoreWebView2InitializationCompleted += self._on_ready
         self.webview.NavigationStarting += self._on_navigation_starting
@@ -159,9 +173,13 @@ class Tab:
         core.WebResourceRequested += self._on_resource_requested
 
         core.AddScriptToExecuteOnDocumentCreatedAsync(privacy.GPC_JS)
+        self.set_login_script(self.app.settings.get('password_manager', True))
 
         def start(task):  # first navigation only once the start-up scripts are in place
-            if self.pending_url:
+            asleep, self.restore_asleep = self.restore_asleep, False
+            if asleep and self is not self.app.active:
+                self.rest(self.pending_url)
+            elif self.pending_url:
                 self.navigate(self.pending_url)
             else:
                 self.show_new_tab()
@@ -252,7 +270,10 @@ class Tab:
                                                s.get('bookmarks_bar', True),
                                                self.app.update_note,
                                                s.get('performance_mode', False),
-                                               default_browser.is_default()))
+                                               default_browser.is_default(),
+                                               s.get('restore_tabs', True),
+                                               s.get('password_manager', True),
+                                               len(s.get('password_never', []))))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):
@@ -315,11 +336,42 @@ class Tab:
         self._show_builtin(pages.sleeping_html(self.url))
         self.app.refresh_chrome(self)
 
+    def rest(self, url: str):
+        """A tab from the last session: asleep from the start, so it costs nothing until you open it."""
+        self.sleep_url = self.url = url
+        self._show_builtin(pages.sleeping_html(url))
+        self.app.refresh_chrome(self)
+
     def wake(self):
         if not self.sleep_url:
             return
         url, self.sleep_url = self.sleep_url, None
         self.navigate(url)
+
+    def session_url(self) -> str:
+        """The address to bring back after a restart; '' for private tabs, warnings and Lite's own pages."""
+        if self.private or self.showing_block_page:
+            return ''
+        url = self.url or self.pending_url or ''
+        return url if url.startswith(('http://', 'https://')) else ''
+
+    def open_host(self) -> str:
+        """The site this tab keeps signed in: the page it shows, or the one it reloads when it wakes."""
+        if self.private:
+            return ''
+        if self.host and not self.builtin:
+            return self.host
+        if self.sleep_url or self.reader_source or self.restore_asleep:
+            return _host(self.sleep_url or self.reader_source or self.pending_url or '')
+        return ''
+
+    def cookie_hosts(self) -> set[str]:
+        """Sites whose cookies this tab needs: its own, and the ones its page loads from - a sign-in
+        check such as Twitch's keeps its cookie on another site, and loses its mind when it goes."""
+        if self.private:
+            return set()  # private tabs keep their cookies in a profile of their own
+        own = self.open_host()
+        return ({own} | self.request_hosts) if own else set()
 
     def show_block_page(self, url: str, reason: str, level: str, kind: str | None = None):
         self.showing_block_page = True
@@ -391,12 +443,15 @@ class Tab:
                 return
         app.allowed_once.discard(url)
         self.denied.pop(url.split('#', 1)[0], None)  # allowed now, even if it was stopped a moment ago
+        self.login_fields = ''  # the new page reports its own sign-in fields
 
         self.showing_block_page = False
         self.builtin = False
-        self.blocked = self.popups = self.fingerprints = 0
+        self.blocked = self.popups = self.fingerprints = self.twitch_ads = 0
+        self.twitch_player = False
         self.links, self._links_pending = self._links_pending, 0
         self.blocked_hosts.clear()
+        self.request_hosts = set()
         self.cosmetic = None
         self.nav_url = url
         self.nav_id = args.NavigationId
@@ -447,6 +502,8 @@ class Tab:
         self.app.refresh_chrome(self)
 
     def _on_title_changed(self, sender, args):
+        if self.sleep_url:
+            return  # asleep: the tab keeps the title of its page, not "Tab asleep"
         self.title = str(sender.DocumentTitle or '') or self.url or self.title
         if not self.private and not self.builtin and self.host:
             self.app.history.retitle(self.url, self.title)
@@ -546,6 +603,31 @@ class Tab:
                 then()
         core.AddScriptToExecuteOnDocumentCreatedAsync(self.fp_js).ContinueWith(Action[Task[String]](done), self.scheduler)
 
+    def set_login_script(self, on: bool):
+        """Passwords on: pages get LOGIN_JS from their next load. Off: it goes, and so does what Lite saw."""
+        core = self.webview.CoreWebView2
+        if core is None:
+            return  # _on_ready registers it
+        if not on:
+            self.login_fields, self.login_user, self.login_candidate, self.save_pending = '', None, None, None
+            if self.login_script:
+                core.RemoveScriptToExecuteOnDocumentCreated(self.login_script)
+            self.login_script = None
+            return
+        if self.login_script is not None:
+            return  # registered, or registering ('')
+        self.login_script = ''
+
+        def done(task):
+            if task.IsFaulted:
+                self.login_script = None if self.login_script == '' else self.login_script
+            elif self.login_script == '':
+                self.login_script = task.Result
+            else:  # switched off (or on again) while this one was registering
+                core.RemoveScriptToExecuteOnDocumentCreated(task.Result)
+        core.AddScriptToExecuteOnDocumentCreatedAsync(autofill.LOGIN_JS).ContinueWith(
+            Action[Task[String]](done), self.scheduler)
+
     def drop_site_scripts(self):
         """Forget every registered scriptlet script (Shields toggled); takes effect on the next navigation."""
         for script_id in self.site_scripts.values():
@@ -578,6 +660,8 @@ class Tab:
                     self.app.stats.add('blocked')
                     self.app.refresh_shield(self)
                     return
+            if len(self.request_hosts) < 500:
+                self.request_hosts.add(_host(url))
             request.Headers.SetHeader('Sec-GPC', '1')
         except Exception:
             traceback.print_exc()
@@ -593,6 +677,21 @@ class Tab:
         if msg.get('lite') == 'fingerprint':  # a page (or a frame in it) read canvas/audio/WebGL data
             if not self.builtin and self.fp_script is not None:
                 self.fingerprints += 1
+                self.app.refresh_shield(self)
+            return
+        if msg.get('lite') in ('loginform', 'login', 'username'):
+            self._on_login_message(msg, str(args.Source))
+            return
+        if msg.get('lite') == 'twitchad':  # twitch.py: the player's worker is wrapped / an ad break was skipped
+            if msg.get('worker'):
+                self.twitch_player = True
+            elif msg.get('debug'):
+                self.twitch_log = (getattr(self, 'twitch_log', []) + [str(msg['debug'])])[-50:]
+            elif self.host and self.app.blocker.shields_up(self.host):
+                self.blocked += 1
+                self.twitch_ads += 1
+                self.blocked_hosts['twitch.tv video ad'] += 1
+                self.app.stats.add('blocked')
                 self.app.refresh_shield(self)
             return
         if 'lite' in msg:
@@ -649,6 +748,50 @@ class Tab:
             self.app.set_default_browser()
         elif cmd == 'update':
             self.app.update_now()
+
+    def _on_login_message(self, msg: dict, source: str):
+        """LOGIN_JS: the page's sign-in fields, and what you signed in with."""
+        if self.builtin or self.login_script is None or not self.app.settings.get('password_manager', True):
+            return
+        page = autofill.origin(source)
+        if not page or page != autofill.origin(self.url):
+            return  # only the page this tab shows: never a frame, never a page that has moved on
+        kind = msg['lite']
+        if kind == 'loginform':
+            fields = msg.get('fields')
+            self.login_fields = fields if fields in ('password', 'username') else ''
+            if self.login_fields != 'password':
+                # The sign-in form is gone - the page moved on, or a new one loaded: you are signed in.
+                # A failed sign-in shows the form again, so a mistyped password is not offered.
+                self._offer_save()
+            self.app.refresh_chrome(self)
+        elif kind == 'username':
+            value = str(msg.get('value', '')).strip()[:200]
+            if value:
+                self.login_user = (page, value)
+        elif kind == 'login' and not self.private:  # private tabs keep nothing, passwords included
+            pw, user = msg.get('pw'), str(msg.get('user', '')).strip()[:200]
+            if not isinstance(pw, str) or not pw or len(pw) > 1000:
+                return
+            if not user and self.login_user and self.login_user[0] == page:
+                user = self.login_user[1]  # the username step came first
+            self.login_candidate = {'origin': page, 'user': user, 'pw': pw, 'at': time.time()}
+
+    def _offer_save(self):
+        login, self.login_candidate = self.login_candidate, None
+        if login and time.time() - login['at'] < SAVE_OFFER_SECONDS:
+            self.app.offer_save(self, login)
+
+    def save_offer(self) -> dict | None:
+        """The password the key button offers to save, while that offer lasts."""
+        if self.save_pending and time.time() - self.save_pending['at'] > SAVE_OFFER_SECONDS:
+            self.save_pending = None  # forget it: an unsaved password does not stay in memory
+        return self.save_pending
+
+    def expire_logins(self):
+        if self.login_candidate and time.time() - self.login_candidate['at'] > SAVE_OFFER_SECONDS:
+            self.login_candidate = None
+        self.save_offer()
 
     def _on_cosmetic_message(self, msg: dict):
         """The page's cosmetic script asks for its hide rules, then for rules matching new class names/ids."""

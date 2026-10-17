@@ -7,7 +7,11 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 
 - **No ads.** Runs the same blocking engine Brave uses (adblock-rust) with the
   nine filter lists uBlock Origin enables by default. Lists download and update
-  themselves. YouTube plays without video ads.
+  themselves. YouTube plays without video ads. Twitch stitches its video ads into
+  the stream itself, where no list can reach them: during an ad break Lite plays
+  the same stream as Twitch's embedded player gets it, without the ads, or - when
+  every copy has them, as with most pre-rolls - cuts the ad clips out, and the
+  video waits out the break instead of showing it.
 - **Shields panel** per site: on/off switch, counts, and what was blocked on the
   page. One click turns Shields off for a site that misbehaves.
 - **Privacy.** Tracking codes such as `fbclid` are stripped from links, every
@@ -21,8 +25,9 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Private tabs** (Ctrl+Shift+N) keep nothing once closed.
 - **Auto cookie deletion.** Every 30 seconds Lite deletes the cookies of sites
   you have not starred and that are not open in a tab. Sites you star (Ctrl+D)
-  or have open keep their cookies, so you stay logged in where you want and
-  everything else forgets you.
+  or have open keep their cookies - and so do the sites an open page loads
+  from, such as the sign-in check Twitch runs from another domain - so you stay
+  logged in where you want and everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
 - **Lite Search**: pick "Lite" as the search engine in Settings and typing a
   search shows Lite's own results page - plain rows of title, address and
@@ -32,6 +37,15 @@ Chromium engine already installed with Windows) with Brave-style Shields.
 - **Zoom** (Ctrl +/−/0): per-site and remembered across restarts. Ctrl+scroll
   zooms the page in front of you too, but only the keys are remembered.
 - **Reopen closed tab** (Ctrl+Shift+T): the last ten closed tabs, one press each.
+- **Your tabs come back.** Close Lite (or restart it to update) and the next
+  start reopens the tabs you had, pinned ones still pinned. They wait asleep
+  and load when you click them, so the start stays fast. Private tabs never
+  come back. Switch it off in Settings > Tabs.
+- **Back and forward lists**: right-click or hold the Back or Forward button
+  to see the pages that way and jump several at once.
+- **One Lite at a time.** A link opened from another app becomes a new tab in
+  the Lite that is already open, instead of a second copy whose cookie
+  clean-up and saved files would fight with the first.
 - **Pin tab** (Ctrl+Shift+P or the menu): a pinned tab never sleeps, so a site
   you keep around stays exactly where it is - at the cost of keeping its
   renderer alive (~30 MB per pinned site).
@@ -44,9 +58,14 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   the toolbar - left-click opens, middle-click opens a new tab.
 - **Import bookmarks**: one click pulls them from Chrome, Edge, Brave or
   Firefox on this PC (read-only), or from any browser's bookmarks.html export.
-- **Password vault**: import a CSV exported from another browser's password
-  manager. Passwords are encrypted with Windows DPAPI to your account, never
-  shown on screen and never sent anywhere - Copy user / Copy password only.
+- **Passwords**: when you sign in, Lite offers to save the password (or to
+  update a changed one); on a sign-in page the key button in the address bar
+  fills a saved one in. It fills only when you pick a login from that button -
+  Lite's own window, which no page can click - and only on the site the login
+  belongs to, so a hidden form or a script on a page cannot collect it. You can
+  also import a CSV exported from another browser's password manager.
+  Passwords are encrypted with Windows DPAPI to your account, never shown on
+  screen and never sent anywhere.
 - **Reader mode** (the book button or View menu): an article page re-rendered
   as clean text with no layout, fonts or scripts from the site.
 - **Make Lite the default browser** (Settings > System): registers Lite's
@@ -117,7 +136,11 @@ and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 | `browser/guard.py` | Phishing-style URL checks (punycode, `user@host`, `javascript:`) |
 | `browser/downloads.py` | Download checks and AMSI antivirus scanning |
 | `browser/scanner.py` | Optional page-check hook (disabled placeholder) |
-| `browser/store.py` | Bookmarks, history and settings (JSON files in the profile) |
+| `browser/store.py` | Bookmarks, history, the open tabs and settings (JSON files in the profile) |
+| `browser/passwords.py` | The password vault (DPAPI) and which site a login belongs to |
+| `browser/autofill.py` | The sign-in page script, and the script that fills a chosen login |
+| `browser/twitch.py` | Twitch's video ads, which are stitched into the stream |
+| `browser/instance.py` | One Lite per profile: later starts hand their links over |
 | `browser/updater.py` | GitHub release update check |
 | `browser/pages.py` | Built-in new tab, reader, find bar, library and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |

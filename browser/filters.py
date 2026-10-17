@@ -29,6 +29,8 @@ import time
 import urllib.request
 from typing import NamedTuple
 
+from . import twitch
+
 try:
     import adblock  # pip install adblock
 except ImportError:
@@ -459,7 +461,7 @@ class Filters:
     def fixes(self, host: str) -> int:
         """How many scriptlets run on this site (shown in the Shields panel)."""
         own, sub = self._calls(host) if self._code else ([], [])
-        return len(own) + len(sub)
+        return len(own) + len(sub) + twitch.applies(host)
 
     def scriptlet_script(self, host: str) -> str:
         """JS that runs this site's scriptlets at document start, or '' if it has none.
@@ -494,6 +496,8 @@ class Filters:
                 'if (under) {\n' + calls(sub) + '\n}\n'
                 '})();'
             )
+        if twitch.applies(host):  # Lite's own fix: the lists cannot reach ads stitched into the stream
+            script = (script + '\n' if script else '') + twitch.TWITCH_JS
         if len(self._scripts) > 512:
             self._scripts.clear()
         self._scripts[host] = script

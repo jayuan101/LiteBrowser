@@ -211,11 +211,12 @@ def library_html(bookmarks: list[dict], history: list[dict], view: str = 'histor
 <span class=x title=Delete>&#10005;</span></div>"""
             for e in rows)
         if not rows:
-            items = ('<div class=empty>No saved passwords yet. Export a CSV from your old browser '
-                     '(Chrome, Edge and Firefox all have "Export passwords" in their password manager) '
-                     'and bring them in with Import.</div>')
+            items = ('<div class=empty>No saved passwords yet. Sign in to a site and Lite offers to save the '
+                     'password, or export a CSV from your old browser (Chrome, Edge and Firefox all have '
+                     '"Export passwords" in their password manager) and bring them in with Import.</div>')
         extra = (f'<button class=act id=importp>Import from CSV</button>'
-                 f'<span class=note>Locked to this Windows account; Lite never sends a password anywhere.</span>')
+                 f'<span class=note>Locked to this Windows account; Lite never sends a password anywhere. '
+                 f'On a sign-in page, the key button in the address bar fills one in.</span>')
     elif view == 'bookmarks':
         items = ''.join(
             f"""<div class=row data-u={_js_str(e['url'])}><div class=t data-open=1><div>{escape(e['title'])}</div>
@@ -303,10 +304,15 @@ small.ver{color:#6c727d}
 def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_check: bool, version: str,
                   engines: list[tuple[str, str]] | None = None, engine: str = 'brave',
                   bookmarks_bar: bool = True, update_note: str = '', performance: bool = False,
-                  default_ok: bool = False) -> str:
+                  default_ok: bool = False, restore_tabs: bool = True, passwords: bool = True,
+                  never_sites: int = 0) -> str:
     """Everything Lite can be tuned for, with switches that take effect right away."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
                    for eid, name in (engines or []))
+    sites = '1 site' if never_sites == 1 else f'{never_sites} sites'
+    never = (f'<div class=set><div class=txt><div>Sites you said "Never" to</div>'
+             f'<small>Lite does not offer to save passwords on {sites}.</small></div>'
+             f'<button class=act id=never-reset>Offer again</button></div>' if never_sites else '')
     return f"""<!doctype html><html><head><meta charset=utf-8><title>Settings</title><style>{SETTINGS_CSS}</style></head>
 <body><div class=wrap><h1>Settings</h1>
 
@@ -331,6 +337,16 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <button class="tog{' on' if tab_sleep else ''}" data-k=tab_sleep aria-label="toggle"></button></div>
 <div class=set><div class=txt><div>Sleep after</div><small>How long a background tab stays awake.</small></div>
 <input class=min id=sleep-min type=number min=1 max=1440 value={max(1, min(1440, sleep_minutes))}></div>
+<div class=set><div class=txt><div>Reopen my tabs when Lite starts</div>
+<small>The tabs you had open come back asleep and load when you click them. Private tabs never come back.</small></div>
+<button class="tog{' on' if restore_tabs else ''}" data-k=restore_tabs aria-label="toggle"></button></div>
+</section>
+
+<section><h2>Passwords</h2>
+<div class=set><div class=txt><div>Offer to save passwords, and fill them in</div>
+<small>When you sign in, Lite offers to save the password. On a sign-in page, the key button in the address bar fills a saved one - only on the site it belongs to.</small></div>
+<button class="tog{' on' if passwords else ''}" data-k=password_manager aria-label="toggle"></button></div>
+{never}
 </section>
 
 <section><h2>Performance</h2>
@@ -380,6 +396,8 @@ cc.addEventListener('click',()=>{{
   else{{cc.classList.add('armed');cc.textContent='Click again to confirm'}}}});
 document.getElementById('rel').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'updates'}}));
 document.getElementById('setdefault').addEventListener('click',()=>window.chrome.webview.postMessage({{cmd:'setdefault'}}));
+const nr=document.getElementById('never-reset');
+if(nr)nr.addEventListener('click',()=>set('password_never',[]));
 </script></body></html>"""
 
 

@@ -18,6 +18,7 @@ ACTION is one of:
     uiclick:ID    a real mouse click on the toolbar element with that id (shields, menu, downloads...)
     confirm:yes   answer the risky-download prompt (yes = download anyway, no = don't)
     mem           print the private memory of Lite's processes, by process type
+    py:EXPR       evaluate a Python expression with app, tab and lite in scope and print it
 
 Runs the real browser code on an isolated profile under %TEMP%, so the user's own
 Lite profile is left alone. Every network request of the first tab is recorded
@@ -272,6 +273,11 @@ def drive(app, opts):
                     counts[kind] += 1
             log('memory (private MB): ' + ', '.join(f'{k} x{counts[k]}: {v:.0f}' for k, v in groups.most_common())
                 + f' | total {sum(groups.values()):.0f} MB')
+        elif action == 'py':  # py:EXPR - evaluate with app, tab and lite in scope, print the result
+            try:
+                log(f'py {arg}: {eval(arg, {"app": app, "tab": tab, "lite": lite, "json": json})!r}')
+            except Exception as e:
+                log(f'py {arg}: raised {e!r}')
         elif action == 'confirm':  # answer the "this file can run programs" prompt
             app._finish_confirm(arg == 'yes')
         elif action == 'dlstate':  # WebView2's own view of each download
@@ -320,11 +326,13 @@ def main():
     ap.add_argument('--msglog', action='store_true', help='print every message the first tab sends to Lite')
     ap.add_argument('--map-host', help='resolve this hostname to 127.0.0.1 (test sites under a normal name)')
     ap.add_argument('--hidelog', action='store_true', help='print what closes the pop-up panel')
+    ap.add_argument('--restore', action='store_true', help="bring back the scratch profile's tabs of the last run")
+    ap.add_argument('--data', help='profile folder (default %%TEMP%%\\LiteBrowser-scratch)')
     opts = ap.parse_args()
     if opts.map_host:  # WebView2 reads this for every browser it starts in this process
         os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = f'--host-resolver-rules="MAP {opts.map_host} 127.0.0.1"'
 
-    lite.DATA_DIR = os.path.join(tempfile.gettempdir(), 'LiteBrowser-scratch')
+    lite.DATA_DIR = opts.data or os.path.join(tempfile.gettempdir(), 'LiteBrowser-scratch')
     if opts.fresh:
         for name in ('shields.json', 'stats.json'):
             path = os.path.join(lite.DATA_DIR, name)
@@ -339,7 +347,7 @@ def main():
 
     def ui_main():
         try:
-            app = lite.App([opts.url] if opts.url else [])
+            app = lite.App([opts.url] if opts.url else [], restore=opts.restore)
             drive(app, opts)
             app.run()
         except Exception:

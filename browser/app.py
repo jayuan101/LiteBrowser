@@ -16,23 +16,23 @@ import time
 import traceback
 from urllib.parse import urlparse
 
-from . import default_browser, filters, guard, importer, privacy, search as search_mod, updater
+from . import autofill, default_browser, filters, guard, importer, instance, privacy, search as search_mod, updater
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner, fallback_path
 from .passwords import Passwords
 from .popup import Popup
 from .scanner import FableScanner
 from .stats import Stats
-from .store import Bookmarks, History, Settings, host_keeps_cookie
+from .store import Bookmarks, History, Session, Settings, host_keeps_cookie
 from .tab import Tab, to_url
 from .webview2 import (
     Action, ApartmentState, CoreWebView2CreationProperties, CoreWebView2MemoryUsageTargetLevel,
     CoreWebView2PrintDialogKind, Drawing, Drawing2D,
-    System, Task, TaskScheduler, Thread, ThreadStart, WebView2, WinForms,
+    String, System, Task, TaskScheduler, Thread, ThreadStart, WebView2, WinForms,
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.7'
+APP_VERSION = '0.2.8'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -125,8 +125,9 @@ class App:
     version = APP_VERSION
     SEARCH_ENGINES = SEARCH_ENGINES  # settings page reads it off the instance
 
-    def __init__(self, start_urls: list[str]):
+    def __init__(self, start_urls: list[str], restore: bool = True):
         self.name = APP_NAME
+        self.closing = False  # the window is closing: links from a later start are not taken any more
         self.closed: list[tuple[str, str]] = []  # (url, title) of the last ten closed tabs
         self.config = load_config()
         self.data_dir = DATA_DIR
@@ -140,6 +141,7 @@ class App:
         self.history = History(os.path.join(self.data_dir, 'history.json'))
         self.settings = Settings(os.path.join(self.data_dir, 'settings.json'))
         self.passwords = Passwords(os.path.join(self.data_dir, 'passwords.json'))
+        self.session = Session(os.path.join(self.data_dir, 'session.json'))
         self.import_note = ''  # result of the last bookmark/password import, shown on the library page
         self.antivirus = AntivirusScanner()
         self.update_banner: dict | None = None  # a newer release exists -> banner on the new tab page
@@ -166,14 +168,20 @@ class App:
 
         self._build_form()
         self.scheduler = TaskScheduler.FromCurrentSynchronizationContext()  # cookie sweep continuations
-        for url in start_urls or [None]:
+        active = self._restore_session() if restore and self.settings.get('restore_tabs', True) else None
+        for url in start_urls:  # links opened from another app come after the restored tabs, in front
             self.new_tab(url)
+        if not start_urls:
+            if active is not None:
+                self.select(active)
+            else:
+                self.new_tab(None)
         threading.Thread(target=self._load_filters, daemon=True).start()
         threading.Thread(target=self._check_updates, daemon=True).start()
 
         self.slow_timer = WinForms.Timer()
         self.slow_timer.Interval = 30_000
-        self.slow_timer.Tick += lambda s, e: (self._sleep_check(), self._cookie_sweep())
+        self.slow_timer.Tick += lambda s, e: (self._sleep_check(), self._cookie_sweep(), self._save_state())
         self.slow_timer.Start()
 
     # ---- window ----------------------------------------------------------
@@ -260,9 +268,39 @@ class App:
         except Exception:
             pass  # the form is gone (shutting down); there is nothing left to run fn on
 
+    def take_links(self, urls: list[str]) -> bool:
+        """Links from a later start of Lite (another app opened them): new tabs in this window.
+
+        Runs on the instance listener thread and waits for the UI thread, so the answer is
+        true: False once the window is closing, and that start then waits to take over.
+        """
+        taken = []
+
+        def open_links():
+            if self.closing:
+                return
+            taken.append(True)  # even if a tab fails below: a retry would open the others twice
+            try:
+                for url in urls or [None]:  # started without a link (Start menu): a new tab
+                    self.new_tab(url)
+                hwnd = int(self.form.Handle.ToInt64())
+                user32 = ctypes.windll.user32
+                if user32.IsIconic(hwnd):
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE: back to normal or maximized, as it was
+                user32.SetForegroundWindow(hwnd)  # the start allowed it (AllowSetForegroundWindow)
+            except Exception:
+                traceback.print_exc()
+        try:
+            self.form.Invoke(Action(open_links))
+        except Exception:
+            return False  # the window is gone
+        return bool(taken)
+
     def _on_closed(self, sender, args):
+        self.closing = True
         self.ui_timer.Stop()
         self.slow_timer.Stop()
+        self._save_session()  # first: the tabs to bring back, whatever happens below
         self._final_cookie_sweep()  # best effort: a final wipe of cookies you would not keep
         self.stats.save()
         self.bookmarks.save()
@@ -334,6 +372,10 @@ class App:
             self.zoom(int(msg.get('step', 0)))
         elif ui == 'pin' and tab:
             self.toggle_pin(tab)
+        elif ui == 'key':
+            self.show_key(self._anchor(msg.get('rect')))
+        elif ui == 'navlist':
+            self.show_nav_list('forward' if msg.get('dir') == 'forward' else 'back', self._anchor(msg.get('rect')))
 
     def _anchor(self, rect: dict | None = None):
         """Screen rectangle (device pixels) of a toolbar button, from its CSS-pixel rect in chrome.html."""
@@ -376,6 +418,7 @@ class App:
                         'count': tab.blocked if tab else 0},
             'scan': self._scan_info(tab) if on_site else {'show': False},
             'downloads': self._downloads_badge(),
+            'key': self._key_state(tab),
             'bar': {'show': bool(self.settings.get('bookmarks_bar', True)),
                     'items': [{'url': b['url'], 'title': (b['title'] or b['url'])[:24]} for b in self.bookmarks.items()[:40]]},
         }
@@ -552,6 +595,12 @@ class App:
             self._finish_confirm(bool(msg.get('keep')))
         elif kind == 'hidden' and msg.get('view') == 'confirm':
             self._finish_confirm(False)  # closed without an answer: don't download
+        elif kind == 'fill':
+            self.fill_login(str(msg.get('user', '')))
+        elif kind == 'savepw':
+            self._answer_save(str(msg.get('act', '')))
+        elif kind == 'navgo':
+            self._go_to_entry(msg.get('id'))
 
     # ---- downloads -------------------------------------------------------
     def download_starting(self, tab: Tab, args):
@@ -742,6 +791,131 @@ class App:
         tab.show_settings()
         tab.webview.Focus()
 
+    # ---- passwords: offered after you sign in, filled from the key button ---
+    def _key_state(self, tab: Tab | None) -> dict:
+        if not tab or tab.builtin or not self.settings.get('password_manager', True):
+            return {'show': False}
+        if tab.save_offer():
+            return {'show': True, 'save': True}
+        return {'show': bool(tab.login_fields) and self.passwords.has_logins(tab.url), 'save': False}
+
+    def _in_front(self) -> bool:
+        """Lite's window or its panel is the one you are using - not another app."""
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        return user32.GetForegroundWindow() in (self.form.Handle.ToInt64(), self.popup.form.Handle.ToInt64())
+
+    def offer_save(self, tab: Tab, login: dict):
+        """You signed in on `tab`: offer to save the password, or the new one of a login already saved."""
+        host = autofill.site_host(login['origin'])
+        if not host or host in self.settings.get('password_never', []):
+            return
+        try:
+            status = self.passwords.status(login['origin'], login['user'], login['pw'])
+        except OSError:
+            return
+        if status == 'same':
+            return
+        tab.save_pending = dict(login, update=status == 'changed', at=time.time())
+        self.refresh_chrome(tab)
+        if tab is self.current and not self.popup.visible and self._in_front():
+            self.popup.show('savepw', self._save_data(tab), self._anchor())  # closed unanswered, the key reopens it
+
+    @staticmethod
+    def _save_data(tab: Tab) -> dict:
+        offer = tab.save_pending
+        return {'host': autofill.site_host(offer['origin']), 'user': offer['user'], 'update': offer['update']}
+
+    def show_key(self, anchor=None):
+        """The key button: the offer to save what you signed in with, else the site's logins to fill."""
+        tab = self.current
+        if tab is None or tab.builtin or self._toggle_popup('savepw') or self._toggle_popup('logins'):
+            return
+        if tab.save_offer():
+            self.popup.show('savepw', self._save_data(tab), anchor or self._anchor())
+        else:
+            users = [r['user'] for r in self.passwords.logins_for(tab.url)]
+            self.popup.show('logins', {'host': autofill.site_host(tab.url), 'users': users}, anchor or self._anchor())
+
+    def _answer_save(self, act: str):
+        tab = self.current
+        offer = tab.save_offer() if tab else None
+        self.popup.hide()
+        if not offer or act not in ('save', 'never'):
+            return
+        tab.save_pending = None
+        if act == 'save':
+            try:
+                self.passwords.remember(offer['origin'], offer['user'], offer['pw'])
+            except OSError:
+                traceback.print_exc()
+        else:
+            never = list(self.settings.get('password_never', []))
+            host = autofill.site_host(offer['origin'])
+            if host not in never:
+                self.settings.set('password_never', never + [host])
+        self.refresh_chrome(tab)
+
+    def fill_login(self, user: str):
+        """Type the chosen login into the page - and only if the page is the site it belongs to."""
+        self.popup.hide()
+        tab = self.current
+        core = tab.webview.CoreWebView2 if tab else None
+        if core is None or tab.builtin:
+            return
+        page = autofill.origin(str(core.Source))
+        if not page or page != autofill.origin(tab.url):
+            return
+        row = next((r for r in self.passwords.logins_for(page) if r['user'] == user), None)
+        try:
+            password = self.passwords.reveal(row['url'], row['user']) if row else ''
+        except OSError:
+            return
+        if password:
+            core.ExecuteScriptAsync(autofill.fill_js(page, row['user'], password))
+        tab.webview.Focus()
+
+    # ---- back / forward lists ----------------------------------------------
+    def show_nav_list(self, direction: str, anchor=None):
+        """Right-click or hold Back or Forward: the pages that way, to jump several at once."""
+        tab = self.current
+        if tab is None or tab.webview.CoreWebView2 is None or self._toggle_popup('navlist'):
+            return
+
+        def got(task):
+            if task.IsFaulted or tab is not self.current:
+                return
+            try:
+                history = json.loads(str(task.Result))
+                entries, here = history.get('entries', []), int(history.get('currentIndex', 0))
+            except (ValueError, TypeError, AttributeError):
+                return
+            items = []
+            for e in (entries[:here][::-1] if direction == 'back' else entries[here + 1:]):
+                url, title = str(e.get('url', '')), str(e.get('title', ''))
+                if url.startswith('data:'):  # one of Lite's own pages
+                    if title in ('', 'Tab asleep'):
+                        continue  # the sleeping placeholder is not a page you visited
+                    where = APP_NAME
+                else:
+                    where = (urlparse(url).hostname or url).removeprefix('www.')
+                items.append({'id': e.get('id'), 'title': title or url, 'host': where})
+                if len(items) == 15:
+                    break
+            if items:
+                self.popup.show('navlist', {'dir': direction, 'items': items}, anchor or self._anchor(), align='left')
+        tab.webview.CoreWebView2.CallDevToolsProtocolMethodAsync('Page.getNavigationHistory', '{}').ContinueWith(
+            Action[Task[String]](got), self.scheduler)
+
+    def _go_to_entry(self, entry_id):
+        self.popup.hide()
+        tab = self.current
+        if tab is None or tab.webview.CoreWebView2 is None or not isinstance(entry_id, int) or isinstance(entry_id, bool):
+            return
+        tab.webview.CoreWebView2.CallDevToolsProtocolMethodAsync(
+            'Page.navigateToHistoryEntry', json.dumps({'entryId': entry_id}))
+        tab.webview.Focus()
+
     # ---- zoom, closed tabs, pinned tabs ------------------------------------
     def zoom_for(self, host: str) -> float:
         try:
@@ -825,6 +999,17 @@ class App:
         elif key == 'performance_mode':
             self.settings.set(key, bool(value))
             self.apply_performance_mode()
+        elif key == 'restore_tabs':
+            self.settings.set(key, bool(value))
+            self._save_session()  # off: the saved tabs are deleted right away
+        elif key == 'password_manager':
+            self.settings.set(key, bool(value))
+            for t in list(self.tabs):
+                t.set_login_script(bool(value))
+            self.refresh_chrome()
+        elif key == 'password_never' and not value:  # the page can only clear the list, never fill it
+            self.settings.set(key, [])
+            self._refresh_settings_pages()
 
     def set_default_browser(self):
         """Register Lite with Windows, then the Default apps page asks the user to confirm."""
@@ -999,6 +1184,42 @@ del "%~f0"\r''')
             if t is not self.active and t.sleepable() and now - t.last_active > limit:
                 t.sleep()
 
+    # ---- the tabs of the last session ---------------------------------------
+    def _restore_session(self) -> Tab | None:
+        """Bring back the tabs Lite had open: asleep until you look at one, so the start stays fast.
+        Returns the tab you were on, or None when that was one of Lite's own pages."""
+        chosen, active = None, self.session.active()
+        for i, entry in enumerate(self.session.tabs()):
+            tab = Tab(self, entry['url'], asleep=True, title=entry['title'])
+            tab.pinned = entry['pinned']
+            self.tabs.append(tab)
+            if i == active:
+                chosen = tab
+        return chosen
+
+    def _save_session(self):
+        if not self.settings.get('restore_tabs', True):
+            self.session.forget()  # switched off: nothing about your tabs stays on disk
+        else:
+            entries = [(t, t.session_url()) for t in self.tabs]
+            saved = [(t, url) for t, url in entries if url]
+            active = next((i for i, (t, _) in enumerate(saved) if t is self.active), -1)
+            self.session.remember([{'url': url, 'title': t.title, 'pinned': t.pinned} for t, url in saved], active)
+        self.session.save()
+
+    def _save_state(self):
+        """Every 30 seconds: what a crash or a power cut would otherwise lose (only what changed is written)."""
+        self._save_session()
+        self.bookmarks.save()
+        self.history.save()
+        for t in self.tabs:
+            t.expire_logins()  # a password you did not save does not wait in memory past its offer
+
+    def _open_hosts(self) -> set[str]:
+        """Sites open in normal tabs (sleeping ones included: they come back signed in), and the
+        sites their pages load from while they are open."""
+        return {h for t in self.tabs for h in t.cookie_hosts() if h}
+
     def _final_cookie_sweep(self):
         """The close-time sweep must run synchronously: there is no message loop left to call it back."""
         if not self.settings.get('auto_delete_cookies', True):
@@ -1006,7 +1227,7 @@ del "%~f0"\r''')
         core = self.chrome.CoreWebView2
         if core is None:
             return
-        open_hosts = {t.host for t in self.tabs if t.host and not t.private and not t.builtin}
+        open_hosts = self._open_hosts()
         try:
             task = core.CookieManager.GetCookiesAsync(None)
             for _ in range(100):  # up to ~2 s; pumping lets the COM result arrive on this STA thread
@@ -1026,7 +1247,7 @@ del "%~f0"\r''')
         core = self.chrome.CoreWebView2
         if core is None:
             return
-        open_hosts = {t.host for t in self.tabs if t.host and not t.private and not t.builtin}
+        open_hosts = self._open_hosts()
         try:
             task = core.CookieManager.GetCookiesAsync(None)
         except Exception:
@@ -1134,14 +1355,23 @@ def run(argv: list[str]):
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
+    # One Lite per profile: when one is open already it takes the links, and this start is done.
+    # The main thread holds the profile's mutex until the process ends.
+    owner = instance.claim(DATA_DIR, argv)
+    if owner is None:
+        return
     WinForms.Application.EnableVisualStyles()
 
     # WebView2 (COM) requires a single-threaded apartment; Python's main thread is not one.
     def ui_main():
         try:
-            App(argv).run()
+            app = App(argv)
+            owner.serve(app.take_links)
+            app.run()
         except Exception:
             traceback.print_exc()
+        finally:
+            owner.close()
 
     thread = Thread(ThreadStart(ui_main))
     thread.SetApartmentState(ApartmentState.STA)

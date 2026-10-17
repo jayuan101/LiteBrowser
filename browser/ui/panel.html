@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Lite</title>
-<!-- Pop-up panels (Shields, menu, downloads, download warning) in a small borderless window.
+<!-- Pop-up panels (Shields, menu, downloads, download warning, passwords, back/forward lists) in a small borderless window.
      Lite sends {view, data}; the page renders it, reports its size, and sends back {panel: ...}. -->
 <style>
 :root {
@@ -19,6 +19,9 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 #root { width: 344px; padding: 16px; }
 #root.menu { width: 268px; padding: 6px; }
 #root.downloads { width: 380px; }
+#root.navlist { width: 360px; padding: 6px; }
+.item .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.item .k.host { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .head { display: flex; align-items: center; gap: 12px; }
 .badge { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none;
   background: linear-gradient(160deg, #ff8f3f, #fb542b); box-shadow: 0 6px 18px rgba(251,84,43,.35); }
@@ -104,6 +107,7 @@ const I = {
   alert: '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>',
   spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z"/></svg>',
   chev: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  chevBack: '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   incognito: '<svg viewBox="0 0 24 24"><path d="M3 11h18M5.5 11l1.6-5.2a1 1 0 0 1 1-.7h7.8a1 1 0 0 1 1 .7L18.5 11"/><circle cx="7.5" cy="16" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/><path d="M10 16h4"/></svg>',
   down: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>',
@@ -224,6 +228,36 @@ function confirmDownload(d) {
   document.getElementById('drop').addEventListener('click', () => post({panel: 'confirm', keep: false}));
 }
 
+function savePassword(d) {
+  const h = `<div class="head"><div class="badge">${I.key}</div><div class="grow">
+    <div class="title">${d.update ? 'Update' : 'Save'} password for ${esc(d.host)}?</div>
+    <div class="sub">${d.user ? esc(d.user) : 'no username'}</div></div></div>
+    <div class="note">Encrypted to this Windows account. Lite fills it in only on <b>${esc(d.host)}</b>, when you pick it from the key button.</div>
+    <div class="btns"><span class="b" id="never">Never for this site</span><span class="b primary" id="save">${d.update ? 'Update' : 'Save'}</span></div>`;
+  root(h, '');
+  document.getElementById('save').addEventListener('click', () => post({panel: 'savepw', act: 'save'}));
+  document.getElementById('never').addEventListener('click', () => post({panel: 'savepw', act: 'never'}));
+}
+
+function logins(d) {
+  let h = `<div class="head"><div class="badge">${I.key}</div><div class="grow">
+    <div class="title">${esc(d.host)}</div><div class="sub">Pick a login to fill it in</div></div></div><div class="card">`;
+  if (!d.users.length) h += '<div class="empty">No saved passwords for this site.</div>';
+  for (const [i, u] of d.users.entries()) h += `<div class="item" data-i="${i}">${I.key}<span class="t">${esc(u || 'no username')}</span></div>`;
+  h += '</div><div class="note"><span class="link" id="manage">Manage passwords</span></div>';
+  root(h, '');
+  for (const el of document.querySelectorAll('[data-i]')) el.addEventListener('click', () => post({panel: 'fill', user: d.users[Number(el.dataset.i)]}));
+  document.getElementById('manage').addEventListener('click', () => post({panel: 'menu', item: 'passwords'}));
+}
+
+function navList(d) {
+  root(d.items.map((it) => `<div class="item" data-id="${Number(it.id)}" title="${esc(it.title)}">${d.dir === 'back' ? I.chevBack : I.chev}
+    <span class="t">${esc(it.title)}</span><span class="k host">${esc(it.host)}</span></div>`).join('')
+    + '<div class="sep"></div><div class="item" id="all">' + I.clock + '<span>Show all history</span><span class="k">Ctrl+H</span></div>', 'navlist');
+  for (const el of document.querySelectorAll('[data-id]')) el.addEventListener('click', () => post({panel: 'navgo', id: Number(el.dataset.id)}));
+  document.getElementById('all').addEventListener('click', () => post({panel: 'menu', item: 'history'}));
+}
+
 function root(html, cls) {
   const r = document.getElementById('root');
   r.className = cls;
@@ -236,7 +270,7 @@ function size() {
   post({panel: 'size', w: Math.ceil(r.width), h: Math.ceil(r.height)});
 }
 
-const VIEWS = {shields, menu, downloads, confirm: confirmDownload};
+const VIEWS = {shields, menu, downloads, confirm: confirmDownload, savepw: savePassword, logins, navlist: navList};
 window.chrome.webview.addEventListener('message', (e) => {
   const d = e.data;
   if (VIEWS[d.view]) VIEWS[d.view](d.data || {});

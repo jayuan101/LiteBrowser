@@ -21,6 +21,7 @@ class Popup:
         self.view = None
         self.data = None
         self.anchor = None  # screen rectangle (device pixels) of the button that opened it
+        self.align = 'right'  # which edge of the button the panel lines up with
         self.hidden_at = 0.0
         self.ready = False
         self._last_view = None
@@ -73,9 +74,10 @@ class Popup:
         if not str(args.Uri).startswith('data:'):
             args.Cancel = True  # this window only ever shows Lite's own panel page
 
-    def show(self, view: str, data: dict, anchor) -> None:
-        """Open (or refresh) a panel under the button at `anchor`; it appears once it has a size."""
-        self.view, self.data, self.anchor = view, data, anchor
+    def show(self, view: str, data: dict, anchor, align: str = 'right') -> None:
+        """Open (or refresh) a panel under the button at `anchor`; it appears once it has a size.
+        align='left' for buttons at the left end of the toolbar (Back, Forward)."""
+        self.view, self.data, self.anchor, self.align = view, data, anchor, align
         self._post()
 
     def update(self, view: str, data: dict) -> None:
@@ -124,7 +126,8 @@ class Popup:
         scale = ctypes.windll.user32.GetDpiForWindow(int(self.owner.Handle.ToInt64())) / 96 or 1
         w, h = int(css_w * scale), int(css_h * scale)
         area = WinForms.Screen.FromControl(self.owner).WorkingArea
-        x = min(max(self.anchor.Right - w, area.Left + 8), area.Right - w - 8)
+        x = self.anchor.Left if self.align == 'left' else self.anchor.Right - w
+        x = min(max(x, area.Left + 8), area.Right - w - 8)
         y = min(self.anchor.Bottom + int(6 * scale), area.Bottom - h - 8)
         self.form.Bounds = Drawing.Rectangle(x, y, w, h)
         if not self.form.Visible:

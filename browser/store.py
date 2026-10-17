@@ -1,8 +1,9 @@
-"""Sites you starred, pages you visited, and Lite's own settings.
+"""Sites you starred, pages you visited, the tabs you had open, and Lite's own settings.
 
-Three small JSON files in Lite's data folder. Bookmarks keep one entry per
-page; history is capped and forgets itself; settings hold the toggles that
-the menu shows. Nothing here ever leaves the machine.
+Small JSON files in Lite's data folder. Bookmarks keep one entry per page;
+history is capped and forgets itself; the session lists the open tabs for the
+next start; settings hold the toggles that the menu shows. Nothing here ever
+leaves the machine.
 """
 import json
 import os
@@ -148,6 +149,42 @@ class History(_Store):
     def clear(self) -> None:
         self.data = []
         self._dirty = True
+
+
+class Session(_Store):
+    """The tabs open when Lite last closed - or half a minute before a crash - so the next start
+    brings them back. Only web pages are written: never private tabs, never Lite's own pages."""
+
+    LIMIT = 100
+
+    def __init__(self, path: str):
+        super().__init__(path, dict)
+
+    def remember(self, tabs: list[dict], active: int) -> None:
+        """tabs: [{'url', 'title', 'pinned'}] in strip order; active: the index of the tab you are on, or -1."""
+        rows = [{'url': t['url'], 'title': str(t.get('title') or '')[:300], 'pinned': bool(t.get('pinned'))}
+                for t in tabs if str(t.get('url', '')).startswith(('http://', 'https://'))][:self.LIMIT]
+        data = {'tabs': rows, 'active': active if 0 <= active < len(rows) else -1}
+        if data != self.data:
+            self.data = data
+            self._dirty = True
+
+    def tabs(self) -> list[dict]:
+        rows = self.data.get('tabs')
+        if not isinstance(rows, list):
+            return []
+        return [{'url': r['url'], 'title': str(r.get('title') or ''), 'pinned': r.get('pinned') is True}
+                for r in rows[:self.LIMIT]
+                if isinstance(r, dict) and isinstance(r.get('url'), str) and r['url'].startswith(('http://', 'https://'))]
+
+    def active(self) -> int:
+        a = self.data.get('active')
+        return a if isinstance(a, int) and not isinstance(a, bool) else -1
+
+    def forget(self) -> None:
+        if self.data:
+            self.data = {}
+            self._dirty = True
 
 
 class Settings(_Store):

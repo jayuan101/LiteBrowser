@@ -64,6 +64,32 @@ s.set('tab_sleep', False)
 s2 = store.Settings(os.path.join(tmp, 's.json'))
 check('setting survives restart', s2.get('tab_sleep', True) is False)
 
+# ---- session (tabs brought back at the next start) ----------------------------
+ses = store.Session(os.path.join(tmp, 'session.json'))
+check('session: empty to begin with', ses.tabs() == [] and ses.active() == -1)
+ses.remember([{'url': 'https://a.example/x', 'title': 'A', 'pinned': True},
+              {'url': 'about:blank', 'title': 'skip'},
+              {'url': 'https://b.example/', 'title': 'B' * 500}], 1)
+ses.save()
+ses2 = store.Session(os.path.join(tmp, 'session.json'))
+check('session: web pages survive a restart, in order, pinned kept',
+      [(t['url'], t['pinned']) for t in ses2.tabs()] == [('https://a.example/x', True), ('https://b.example/', False)])
+check('session: the active index refers to the saved tabs', ses2.active() == 1)
+check('session: titles are capped', len(ses2.tabs()[1]['title']) == 300)
+ses2.remember([{'url': 'https://a.example/x', 'title': 'A'}], 5)
+check('session: an active index out of range means none', ses2.active() == -1)
+ses2.remember([{'url': f'https://t{i}.example/', 'title': ''} for i in range(150)], 0)
+check('session: at most 100 tabs', len(ses2.tabs()) == store.Session.LIMIT)
+ses2.forget()
+ses2.save()
+check('session: forget leaves nothing on disk', store.Session(os.path.join(tmp, 'session.json')).tabs() == [])
+with open(os.path.join(tmp, 'bad-session.json'), 'w', encoding='utf-8') as f:
+    f.write('{"tabs": [{"url": "javascript:alert(1)"}, {"url": 5}, "x", {"url": "https://ok.example/", "pinned": "yes"}],'
+            ' "active": true}')
+bad = store.Session(os.path.join(tmp, 'bad-session.json'))
+check('session: a damaged file only brings back web pages',
+      bad.tabs() == [{'url': 'https://ok.example/', 'title': '', 'pinned': False}] and bad.active() == -1, str(bad.tabs()))
+
 # ---- cookie rule ---------------------------------------------------------
 starred = {'example.com'}
 open_hosts = {'news.site.org'}
