@@ -1,0 +1,15 @@
+{
+  "repository": "jayuan101/LiteBrowser",
+  "sourceHead": "1d027464b85e682d317eef22ede6f331bc4ed08d",
+  "runId": "42294447349",
+  "artifactId": "13541221975",
+  "sha256": "4cb22018d026e104e11ba987b34c69a187855059f071b632fdf756af3a61d33b",
+  "bytes": 580404,
+  "binaryNames": [
+    "LiteBrowser-Rust.exe"
+  ],
+  "runUrl": "https://github.com/jayuan101/LiteBrowser/actions/runs/42294447349",
+  "artifactUrl": "https://github.com/jayuan101/LiteBrowser/actions/runs/42294447349/artifacts/13541221975",
+  "expiresAt": "2026-11-07T21:12:50Z"
+}
+

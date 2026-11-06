@@ -1,0 +1,8 @@
+{
+  "name": "LiteBrowser-Rust",
+  "repository": "jayuan101/LiteBrowser",
+  "sourceFolder": "native-rust",
+  "branch": "main",
+  "executable": "LiteBrowser-Rust.exe",
+  "dataFolder": "D:\\UserData\\Apps\\LiteBrowser-Rust"
+}
