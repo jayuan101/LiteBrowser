@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use lite_browser_native::{address, allowed_url, Page, SavedBrowser, MAX_TABS};
+use lite_browser_native::{address, allowed_url, ClosedTabs, Page, SavedBrowser, MAX_TABS};
 use serde::Deserialize;
 use serde_json::json;
 use std::{path::PathBuf, time::{Duration, Instant}};
@@ -15,7 +15,7 @@ struct Tab { id: u64, url: String, title: String, view: WebView }
 struct Browser {
     window: Window, toolbar: WebView, tabs: Vec<Tab>, context: WebContext,
     proxy: EventLoopProxy<Message>, saved: SavedBrowser, active: u64, serial: u64,
-    library: bool, status: String, root: PathBuf,
+    library: bool, status: String, root: PathBuf, closed: ClosedTabs,
 }
 
 impl Browser {
@@ -71,10 +71,15 @@ impl Browser {
             "new" => self.new_tab("about:blank")?,
             "select" => if self.tabs.iter().any(|tab|tab.id == command.id) { self.active=command.id; self.layout(); },
             "close" => {
+                if let Some(tab)=self.tabs.iter().find(|tab|tab.id==command.id){self.closed.remember(tab.url.clone());}
                 self.tabs.retain(|tab|tab.id != command.id);
                 if self.tabs.is_empty() { self.new_tab("about:blank")?; }
                 if !self.tabs.iter().any(|tab|tab.id == self.active) { self.active=self.tabs[0].id; }
                 self.layout();
+            },
+            "reopen" => {
+                if let Some(url)=self.closed.last().map(str::to_owned){self.new_tab(&url)?;self.closed.restored();}
+                else {self.status="No recently closed tabs.".into();}
             },
             "navigate" => {
                 let url = address(&command.value)?;
@@ -118,7 +123,7 @@ fn run() -> Result<(), String> {
             if request.body().len() <= 16_384 { let _=toolbar_proxy.send_event(Message::Command(request.body().clone())); }
         }).build_as_child(&window).map_err(|error|error.to_string())?;
     let mut browser = Browser { window, toolbar, tabs:vec![], context:WebContext::new(Some(root.join("webview-profile"))),
-        proxy, saved, active:0, serial:0, library:false, status:NOTE.into(), root };
+        proxy, saved, active:0, serial:0, library:false, status:NOTE.into(), root, closed:ClosedTabs::default() };
     for url in urls { browser.new_tab(&url)?; }
     let mut tick=Instant::now();
     event_loop.run(move |event, _, control| {

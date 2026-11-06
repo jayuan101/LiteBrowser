@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 pub const MAX_TABS: usize = 20;
+#[derive(Default)]
+pub struct ClosedTabs(Vec<String>);
+impl ClosedTabs {
+    pub fn remember(&mut self, url: String) {
+        if !allowed_url(&url) || url == "about:blank" { return; }
+        self.0.push(url);
+        if self.0.len() > 10 { self.0.remove(0); }
+    }
+    pub fn last(&self) -> Option<&str> { self.0.last().map(String::as_str) }
+    pub fn restored(&mut self) { self.0.pop(); }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Page { pub url: String, pub title: String }
 #[derive(Default, Serialize, Deserialize)]
@@ -66,6 +77,17 @@ impl SavedBrowser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn closed_tabs_keep_only_ten_valid_recent_urls() {
+        let mut closed = ClosedTabs::default();
+        for index in 0..12 { closed.remember(format!("https://example.com/{index}")); }
+        closed.remember("javascript:alert(1)".into());
+        closed.remember("about:blank".into());
+        for index in (2..12).rev() {
+            assert_eq!(closed.last(), Some(format!("https://example.com/{index}").as_str()));
+            closed.restored();
+        }
+        assert!(closed.last().is_none());
+    }
     #[test] fn navigation_never_dispatches_scripts_or_credentials() {
         for url in ["javascript:alert(1)", "file:///C:/secret", "data:text/html,test", "https://user:password@example.com", "ms-settings://privacy"] { assert!(!allowed_url(url)); }
         assert!(address("JAVASCRIPT:alert(1)").is_err());
