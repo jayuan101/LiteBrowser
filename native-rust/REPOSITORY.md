@@ -1,9 +1,9 @@
 # Repository and Windows build
 
 - Repository: https://github.com/jayuan101/LiteBrowser
-- Branch: `codex/rust-preview-20261106`
+- Branch: `main`
 - Source folder: `native-rust/`
-- Draft review: https://github.com/jayuan101/LiteBrowser/pull/1
+- Pull request: https://github.com/jayuan101/LiteBrowser/pull/1
 - Verified Windows build: https://github.com/jayuan101/LiteBrowser/actions/runs/42294447349
 - Download: https://github.com/jayuan101/LiteBrowser/actions/runs/42294447349/artifacts/13541221975
 - Tested source: `1d027464b85e682d317eef22ede6f331bc4ed08d`
