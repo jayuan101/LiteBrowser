@@ -1,5 +1,14 @@
 {
-  "state": "standalone-windows-validation-pending",
-  "interactive_tested": false,
-  "original_app_modified": false
+  "state": "standalone-windows-build-passed",
+  "sourceHead": "1d027464b85e682d317eef22ede6f331bc4ed08d",
+  "runId": "42294447349",
+  "testsPassed": 5,
+  "releaseBuild": "passed; exactly one app executable",
+  "importerChecks": "4 passed",
+  "projectIsolation": "passed; no dependencies on other app projects",
+  "interactiveTested": false,
+  "installedLocally": false,
+  "originalAppModified": false,
+  "knownLimitations": "See README.md and app/README.md"
 }
+
