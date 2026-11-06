@@ -9,7 +9,7 @@ Start-Transcript -LiteralPath $logPath | Out-Null
 try {
     & cargo --version
     if ($LASTEXITCODE -ne 0) { throw 'Cargo could not start.' }
-    & cargo fmt --all
+    & cargo fmt --all --check
     if ($LASTEXITCODE -ne 0) { throw 'Rust formatting failed.' }
     & cargo test --workspace
     if ($LASTEXITCODE -ne 0) { throw 'Rust tests failed.' }

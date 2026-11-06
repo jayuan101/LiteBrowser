@@ -31,6 +31,8 @@ Initial audit: 2026-11-06. Compared original README and source/module inventory 
 - Install that exact verified build under this app’s D: folder and verify START.cmd opens it.
 - Preserve the original app and user data until replacement acceptance.
 
-## Current installation limitation
+## Installation and local builds
 
-No Rust compiler is installed locally. The agent terminal could not download build archives due to restricted network access. GitHub CI can compile them, but a successful CI run does not mean the binaries are installed on this PC.
+UPDATE.cmd installs the build pinned in `ci/latest-build.json`. That executable always comes from Windows CI (MSVC), and the checksum, source revision and run are verified before it is installed under `dist`. `scripts\verify-launch.ps1` then starts it through START.cmd and confirms the running file is that exact executable.
+
+This PC has no Visual Studio or Windows SDK, so local development uses GNU Rust plus a MinGW kit in this project's `.tools` folder (`scripts\install-rust.ps1`). Local GNU builds are for testing and are not installed. `scripts\release.py` mirrors this folder into the `.repo` clone and writes the build records from GitHub run data.
