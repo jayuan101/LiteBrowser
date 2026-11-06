@@ -1,0 +1,19 @@
+[package]
+autobins = false
+name = "lite-browser-native"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+transcript-store.workspace = true
+url = "2.5"
+tao = "0.34"
+wry = "=0.53.5"
+rfd = "0.15"
+
+[[bin]]
+name = "LiteBrowser-Rust"
+path = "src/main.rs"
