@@ -41,6 +41,10 @@ def sync():
     workflow = REPO / ".github/workflows/rust-native.yml"
     workflow.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ROOT / "ci/rust-native.yml", workflow)
+    paths = "\n".join(f"native-rust/{relative.as_posix()}" for relative in wanted)
+    ignored = subprocess.run(["git", "-C", str(REPO), "check-ignore", "--no-index", "--stdin"], input=paths, capture_output=True, text=True).stdout
+    if ignored.strip():
+        sys.exit(f"Git would silently skip these files. Fix the repository's .gitignore:\n{ignored}")
     print(subprocess.run(["git", "-C", str(REPO), "status", "--short"], capture_output=True, text=True).stdout)
 
 
