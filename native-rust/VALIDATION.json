@@ -1,14 +1,13 @@
 {
-  "state": "standalone-windows-build-passed",
-  "sourceHead": "1d027464b85e682d317eef22ede6f331bc4ed08d",
-  "runId": "42294447349",
-  "testsPassed": 5,
+  "state": "windows-build-passed-local-installation-pending",
+  "sourceHead": "6f4d1aa6740514d1c5283e0a8ddbd438089a50af",
+  "runId": "42300877019",
+  "testsPassed": 6,
   "releaseBuild": "passed; exactly one app executable",
   "importerChecks": "4 passed",
-  "projectIsolation": "passed; no dependencies on other app projects",
+  "updaterOfflineChecks": "4 passed",
   "interactiveTested": false,
   "installedLocally": false,
   "originalAppModified": false,
-  "knownLimitations": "See README.md and app/README.md"
+  "featureParity": "Incomplete. See FEATURE-PARITY.md."
 }
-
