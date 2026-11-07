@@ -27,13 +27,13 @@ def check(name, ok, detail=''):
 
 HARNESS = r"""
 const W = 'https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/';
-const master = (prefix) => '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x1080,FRAME-RATE=60.000\n'
+const master = (prefix, fps) => '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=1920x1080,FRAME-RATE=' + (fps || '60.000') + '\n'
   + W + prefix + '1080.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=852x480\n' + W + prefix + '480.m3u8\n';
 const live = (n) => `#EXT-X-PROGRAM-DATE-TIME:2026-10-16T12:00:0${n}Z\n#EXTINF:2.000,live\nhttps://edge.ttvnw.net/live${n}.ts\n`;
 const ad = (n) => `#EXT-X-PROGRAM-DATE-TIME:2026-10-16T12:00:0${n}Z\n#EXTINF:2.000,Amazon|12345\nhttps://edge.ttvnw.net/ad${n}.ts\n`;
 const head = '#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXT-X-MEDIA-SEQUENCE:100\n';
 const ADTAG = '#EXT-X-DATERANGE:ID="stitched-ad-1",CLASS="twitch-stitched-ad",START-DATE="2026-10-16T12:00:00Z",DURATION=30\n';
-let backupHasAds = false, requests = [];
+let backupHasAds = false, backupFps = '60.000', requests = [];
 const routes = (url, init) => {
   requests.push(url);
   if (url.startsWith('https://gql.twitch.tv/gql')) {
@@ -43,7 +43,7 @@ const routes = (url, init) => {
   }
   if (url.includes('usher.ttvnw.net')) {
     const sig = new URL(url).searchParams.get('sig');
-    return {status: 200, text: master(sig === 'orig' ? 'orig' : sig.replace('sig-', ''))};
+    return {status: 200, text: sig === 'orig' ? master('orig') : master(sig.replace('sig-', ''), backupFps)};
   }
   if (url === W + 'orig1080.m3u8') return {status: 200, text: head + ADTAG + ad(1) + ad(2) + '#EXT-X-TWITCH-PREFETCH:https://edge.ttvnw.net/ad3.ts\n' + live(3)};
   if (url === W + 'clean1080.m3u8') return {status: 200, text: head + live(1) + live(2)};
@@ -56,10 +56,12 @@ self.fetch = async (input, init) => {
   const r = routes(url, init || {});
   return new Response(r.text, {status: r.status, headers: {'content-type': 'application/vnd.apple.mpegurl', 'content-length': String(r.text.length)}});
 };
-const told = [];
-globalThis.BroadcastChannel = class { constructor(name) { this.name = name; } postMessage(m) { told.push(m); } };
+const told = [], channels = [];
+globalThis.BroadcastChannel = class { constructor(name) { this.name = name; channels.push(this); } postMessage(m) { told.push(m); } };
 const CLIENT = CLIENT_ID_VALUE;
 (WORKER)({clientId: CLIENT, deviceId: 'dev1', channel: 'lite-twitch-test'});
+// The page's "stop swapping" message (sent after a video error), as the worker's channel gets it.
+const stop = () => { for (const c of channels) if (c.onmessage) c.onmessage({data: 'stop'}); };
 
 (async () => {
   const out = {};
@@ -72,10 +74,13 @@ const CLIENT = CLIENT_ID_VALUE;
   out.backupAgain = await (await self.fetch(W + 'orig1080.m3u8')).text();
   out.backupAgainRequests = requests.slice();
   backupHasAds = true;
-  out.stripped = await (await self.fetch(W + 'orig1080.m3u8')).text();
+  out.withAds = await (await self.fetch(W + 'orig1080.m3u8')).text();
   out.afterAd = await (await self.fetch(W + 'clean1080.m3u8')).text();
   out.other = (await (await self.fetch('https://example.com/x.m3u8')).status);
-  out.told = told;
+  out.told = told.slice();
+  backupHasAds = false;
+  stop();
+  out.afterStop = await (await self.fetch(W + 'orig1080.m3u8')).text();
   console.log(JSON.stringify(out));
 })().catch((e) => { console.log(JSON.stringify({error: String(e && e.stack || e)})); });
 """
@@ -102,13 +107,29 @@ if 'error' not in out:
     check('... at the same quality (1080p)', any(u.endswith('/embed1080.m3u8') for u in out['backupRequests']))
     check('the backup token is reused for the rest of the break',
           not any('gql.twitch.tv' in u or 'usher' in u for u in out['backupAgainRequests']), str(out['backupAgainRequests']))
-    st = out['stripped']
-    check('when every copy has ads, the ad clips are cut out', 'ad1.ts' not in st and 'ad2.ts' not in st
-          and 'ad3.ts' not in st and 'live3.ts' in st and 'stitched' not in st, st)
-    check('... with their timestamps, keeping the playlist header', st.startswith('#EXTM3U') and st.count('PROGRAM-DATE-TIME') == 1, st)
+    wa = out['withAds']
+    check('when every copy has ads, the break plays as Twitch sent it (nothing cut out)',
+          'ad1.ts' in wa and 'ad2.ts' in wa and 'live3.ts' in wa and 'stitched' in wa, wa)
     check('the page hears about the break once, how it was handled, and its end',
-          out['told'] == ['ad', 'swap', 'cut', 'end'], str(out['told']))
+          out['told'] == ['ad', 'swap', 'ads', 'end'], str(out['told']))
+    check('after the page says stop (a video error), the ad plays even though a clean copy exists',
+          'ad1.ts' in out['afterStop'] and 'live7.ts' not in out['afterStop'], out['afterStop'])
     check('other sites\' playlists are left alone', out['other'] == 404)
+
+# A 1080p60 stream whose only ad-free copy is 1080p30: another rendition mid-stream is what
+# the decoder could not take (Error #3000 / #4000), so the ad plays instead.
+path2 = os.path.join(os.path.dirname(path), 'harness_fps.js')
+with open(path2, 'w', encoding='utf-8') as f:
+    f.write(HARNESS.replace("backupFps = '60.000'", "backupFps = '30.000'")
+            .replace('(WORKER)', twitch._WORKER_JS.strip()).replace('CLIENT_ID_VALUE', json.dumps(twitch.CLIENT_ID)))
+r = subprocess.run([NODE, path2], capture_output=True, text=True, timeout=60)
+try:
+    out2 = json.loads(r.stdout.strip().splitlines()[-1])
+except (ValueError, IndexError):
+    out2 = {'error': r.stdout + r.stderr}
+check('a backup at another frame rate is not swapped in - the ad plays',
+      'error' not in out2 and 'ad1.ts' in out2.get('backup', '') and 'live7.ts' not in out2.get('backup', ''),
+      str(out2)[:600])
 
 check('the page script parses and wraps only the Twitch player worker',
       'new Proxy(RealWorker' in twitch.TWITCH_JS and 'amazon-ivs|wasmworker' in twitch.TWITCH_JS)

@@ -5,8 +5,11 @@ two seconds lists ad clips from the same servers as the stream, so there is no a
 to block. TWITCH_JS runs in twitch.tv pages (with Shields up) and wraps the player's
 worker. When a playlist has ad clips, the worker quietly fetches the same stream as
 Twitch's embedded or pop-out player sees it - which usually has no ads - and plays that
-until the break is over. If every copy has ads, the ad clips are cut out of the playlist:
-the video pauses for the break instead of showing it.
+until the break is over. The backup must match the stream being played (same height and
+frame rate), and if no copy without ads matches, the break plays as Twitch sent it: the
+video keeps going, with the ad. If the video element ever fails to decode while Lite is
+swapping, the page tells the worker to stop swapping, so the rest of the visit plays the
+ads instead of erroring (Twitch's Error #3000 / #4000).
 
 The wrapped Worker is a Proxy of the real one, so to the page it still reads as native
 code: Twitch's bot check at sign-in must not see a tampered browser. It shares one toString
@@ -24,11 +27,14 @@ _WORKER_JS = r"""
   const realFetch = self.fetch.bind(self);
   const AD = 'stitched';  // CLASS="twitch-stitched-ad" / ID="stitched-ad-..." mark the ad clips
   const TYPES = ['embed', 'popout', 'autoplay'];  // players that often get the stream without ads
-  const streams = new Map();  // media playlist URL -> {channel, usher, height}
+  const streams = new Map();  // media playlist URL -> {channel, usher, height, fps}
   const backups = new Map();  // channel|type -> {at, variants}
-  let inAd = false, mode = '';
+  let inAd = false, mode = '', off = false;  // off: the page saw a video error - play ads as sent
   let bc = null;
-  try { bc = new BroadcastChannel(cfg.channel); } catch (e) {}
+  try {
+    bc = new BroadcastChannel(cfg.channel);
+    bc.onmessage = (e) => { if (e.data === 'stop') off = true; };
+  } catch (e) {}
   const tell = (what) => { try { if (bc) bc.postMessage(what); } catch (e) {} };
   const debug = (...what) => { if (cfg.debug) tell({debug: what.map(String).join(' ')}); };
 
@@ -37,30 +43,17 @@ _WORKER_JS = r"""
     for (let i = 0; i < lines.length - 1; i++) {
       if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
       const res = (lines[i].match(/RESOLUTION=\d+x(\d+)/) || [])[1];
+      const fps = (lines[i].match(/FRAME-RATE=([\d.]+)/) || [])[1];
       const url = lines[i + 1].trim();
-      if (url && !url.startsWith('#')) out.push({height: Number(res || 0), url: new URL(url, base).href});
+      if (url && !url.startsWith('#')) {
+        out.push({height: Number(res || 0), fps: Math.round(Number(fps || 30)), url: new URL(url, base).href});
+      }
     }
     return out;
   };
-  const pick = (list, height) => list.find((v) => v.height === height)
-    || list.filter((v) => v.height && v.height < height).sort((a, b) => b.height - a.height)[0]
-    || list.slice().sort((a, b) => a.height - b.height)[0] || null;
-
-  // The ad clips out, the live ones kept (each clip is an #EXTINF line and the URL after it).
-  const strip = (text) => {
-    const out = [], lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.startsWith('#EXTINF') && !line.includes(',live')) {
-        if (out.length && out[out.length - 1].startsWith('#EXT-X-PROGRAM-DATE-TIME')) out.pop();
-        i++;  // and its URL
-        continue;
-      }
-      if (line.startsWith('#EXT-X-TWITCH-PREFETCH') || (line.startsWith('#EXT-X-DATERANGE') && line.includes(AD))) continue;
-      out.push(line);
-    }
-    return out.join('\n');
-  };
+  // Only the same rendition: a different height or frame rate mid-stream is what the
+  // decoder could not take (Error #3000 / #4000), and an ad is better than a broken video.
+  const pick = (list, info) => list.find((v) => v.height === info.height && v.fps === info.fps) || null;
 
   const token = async (channel, type) => {
     // No Device-ID: a pre-roll belongs to the device that is watching, and the backup is nobody's.
@@ -97,8 +90,8 @@ _WORKER_JS = r"""
           b = {at: Date.now(), variants: variants(await r.text(), u.href)};
           backups.set(key, b);
         }
-        const v = pick(b.variants, info.height);
-        if (!v) { debug('no variant', type, info.height); continue; }
+        const v = pick(b.variants, info);
+        if (!v) { debug('no matching variant', type, info.height, info.fps); continue; }
         const r = await realFetch(v.url);
         const text = r.ok ? await r.text() : '';
         if (text.startsWith('#EXTM3U') && !text.includes(AD)) { debug('backup', type, v.height); return text; }
@@ -120,7 +113,9 @@ _WORKER_JS = r"""
     const answer = (body) => new Response(body, {status: response.status, statusText: response.statusText, headers});
     const master = url.match(/usher\.ttvnw\.net\/api\/(?:v\d+\/)?channel\/hls\/([^/?]+)\.m3u8/);
     if (master) {
-      for (const v of variants(text, url)) streams.set(v.url, {channel: decodeURIComponent(master[1]).toLowerCase(), usher: url, height: v.height});
+      for (const v of variants(text, url)) {
+        streams.set(v.url, {channel: decodeURIComponent(master[1]).toLowerCase(), usher: url, height: v.height, fps: v.fps});
+      }
       debug('master', master[1], streams.size);
       return answer(text);
     }
@@ -132,10 +127,10 @@ _WORKER_JS = r"""
     if (!inAd) { inAd = true; tell('ad'); }
     const info = streams.get(url);
     if (!info) debug('unknown playlist', url.slice(0, 120), [...streams.keys()].map((k) => k.slice(0, 120)).join(' , '));
-    const clean = info && await backup(info);
-    const now = clean ? 'swap' : 'cut';  // cut: the video waits out the break - the page says so
+    const clean = !off && info && await backup(info);
+    const now = clean ? 'swap' : 'ads';  // ads: no matching copy without them - the break plays as sent
     if (now !== mode) { mode = now; tell(now); }
-    return answer(clean || strip(text));
+    return answer(clean || text);
   };
 })
 """
@@ -148,28 +143,26 @@ _PAGE_JS = r"""
   const webview = window.chrome && window.chrome.webview;
   const post = (m) => { try { if (webview) webview.postMessage(m); } catch (e) {} };
   const channel = 'lite-twitch-' + Math.random().toString(36).slice(2);
-  // While the ad clips are cut out the picture stands still: a small note on the player says why.
-  let note = null;
-  const showNote = (on) => {
-    if (!on) { if (note) { note.remove(); note = null; } return; }
-    if (note) return;
-    const player = document.querySelector('.video-player__container, [data-a-target="video-player"]');
-    note = document.createElement('div');
-    const box = note.attachShadow({mode: 'closed'});
-    box.innerHTML = '<div style="font:600 13px/1.4 system-ui,sans-serif;color:#fff;background:rgba(16,18,22,.86);'
-      + 'border:1px solid rgba(251,84,43,.6);border-radius:10px;padding:8px 12px;max-width:320px">'
-      + 'Lite is skipping an ad break - the stream continues when it is over.</div>';
-    note.style.cssText = 'position:absolute;top:12px;left:12px;z-index:2147483647;pointer-events:none';
-    if (player) { if (getComputedStyle(player).position === 'static') player.style.position = 'relative'; player.append(note); }
-    else { note.style.position = 'fixed'; document.documentElement.append(note); }
-  };
+  let page = null, swapping = false, lastSwap = 0;
   try {
-    new BroadcastChannel(channel).onmessage = (e) => {
+    page = new BroadcastChannel(channel);
+    page.onmessage = (e) => {
       if (e.data === 'ad') post({lite: 'twitchad'});
-      else if (e.data === 'cut') showNote(true);
-      else if (e.data === 'swap' || e.data === 'end') showNote(false);
+      else if (e.data === 'swap') swapping = true;
+      else if (e.data === 'ads' || e.data === 'end') { if (swapping) lastSwap = Date.now(); swapping = false; }
       else if (e.data && e.data.debug) post({lite: 'twitchad', debug: String(e.data.debug).slice(0, 600)});
     };
+  } catch (e) {}
+  // A <video> that fails to decode or rejects its source (Twitch's Error #3000 / #4000) while
+  // Lite swaps or just after: stop swapping for this page, so later breaks show the ad instead.
+  try {
+    document.addEventListener('error', (e) => {
+      const v = e.target;
+      if (!v || v.tagName !== 'VIDEO' || !v.error || v.error.code < 3) return;
+      if (!swapping && Date.now() - lastSwap > 30000) return;
+      try { if (page) page.postMessage('stop'); } catch (err) {}
+      post({lite: 'twitchad', debug: 'video error ' + v.error.code + ' while swapping - swapping off for this page'});
+    }, true);
   } catch (e) {}
   const cookie = (name) => (document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)')) || [])[1] || '';
   const WORKER = %(worker)s;
