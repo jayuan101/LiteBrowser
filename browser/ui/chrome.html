@@ -320,12 +320,92 @@ function rectOf(id) {
   return {x: r.left, y: r.top, w: r.width, h: r.height};
 }
 
+// ---- suggestions: Lite matches tabs, bookmarks and history and asks the search engine; the list
+// itself is drawn in a pop-up under the field that never takes focus, so typing goes on here.
+const sug = {seq: 0, items: [], sel: -1, user: '', inline: false};
+function askSuggest(allowInline) {
+  const a = $('address');
+  sug.user = a.value;
+  sug.sel = -1;
+  sug.seq += 1;
+  post({ui: 'suggest', text: a.value, seq: sug.seq, inline: !!allowInline, rect: rectOf('field')});
+}
+function closeSuggest() {
+  sug.items = []; sug.sel = -1; sug.inline = false;
+  sug.seq += 1;
+  post({ui: 'suggest', text: '', seq: sug.seq});
+}
+function gotSuggest(d) {
+  if (d.seq !== sug.seq || !editing) return;  // an answer to text that has changed since
+  sug.items = d.items || [];
+  if (sug.sel >= sug.items.length) sug.sel = -1;
+  const a = $('address');
+  if (d.rest && sug.sel < 0 && a.value === d.text && a.selectionStart === a.value.length) {
+    a.value = d.text + d.rest;  // inline completion: the rest of the address, selected, so typing replaces it
+    a.setSelectionRange(d.text.length, a.value.length);
+    sug.inline = true;
+  }
+}
+function moveSel(step) {
+  const n = sug.items.length;
+  if (!n) return;
+  let i = sug.sel + step;
+  if (i < -1) i = n - 1;
+  if (i >= n) i = -1;
+  sug.sel = i;
+  const a = $('address');
+  const it = sug.items[i];
+  a.value = i < 0 ? sug.user : (it.kind === 'search' || it.kind === 'go' ? it.text : it.url);
+  a.setSelectionRange(a.value.length, a.value.length);
+  sug.inline = false;
+  post({ui: 'suggestsel', sel: i, seq: sug.seq});
+}
+
 $('address').addEventListener('focus', () => { editing = true; $('field').classList.add('focus'); setTimeout(() => $('address').select(), 0); });
-$('address').addEventListener('blur', () => { editing = typed = false; $('field').classList.remove('focus'); if (state) render(state); });
-$('address').addEventListener('input', () => { typed = true; });
+$('address').addEventListener('blur', () => {
+  editing = typed = false; $('field').classList.remove('focus'); closeSuggest(); if (state) render(state);
+});
+$('address').addEventListener('input', (e) => {
+  typed = true;
+  sug.inline = false;
+  const end = e.target.selectionStart === e.target.value.length;
+  if (e.target.value.trim()) askSuggest(end && String(e.inputType || '').startsWith('insert') && e.inputType !== 'insertFromPaste');
+  else closeSuggest();
+});
 $('address').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && e.target.value.trim()) { post({ui: 'go', text: e.target.value.trim()}); typed = false; e.target.blur(); }
-  if (e.key === 'Escape') { typed = false; e.target.blur(); post({ui: 'escape'}); }
+  const a = e.target;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (sug.items.length) { moveSel(e.key === 'ArrowDown' ? 1 : -1); e.preventDefault(); }
+    return;
+  }
+  if ((e.key === 'Tab' || e.key === 'ArrowRight') && sug.inline && a.selectionEnd === a.value.length && a.selectionStart < a.value.length
+      && !e.shiftKey && !e.ctrlKey) {
+    a.setSelectionRange(a.value.length, a.value.length);  // take the completion
+    sug.inline = false;
+    askSuggest(false);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === 'Delete' && e.shiftKey && sug.sel >= 0 && sug.items[sug.sel] && sug.items[sug.sel].kind === 'history') {
+    post({ui: 'suggestdel', i: sug.sel, seq: sug.seq});  // forget this page; the list is asked for again
+    a.value = sug.user;
+    askSuggest(false);
+    e.preventDefault();
+    return;
+  }
+  if (e.key === 'Enter' && a.value.trim()) {
+    if (sug.sel >= 0) post({ui: 'suggestpick', i: sug.sel, seq: sug.seq});
+    else if (e.ctrlKey && /^[a-z0-9-]+$/i.test(a.value.trim())) post({ui: 'go', text: 'www.' + a.value.trim() + '.com'});
+    else post({ui: 'go', text: a.value.trim()});
+    typed = false; a.blur();
+  }
+  if (e.key === 'Escape') {
+    if (sug.items.length && (sug.sel >= 0 || sug.inline)) {  // first Esc: back to what you typed, list closed
+      a.value = sug.user; sug.sel = -1; sug.inline = false; closeSuggest(); e.preventDefault(); return;
+    }
+    if (sug.items.length) { closeSuggest(); e.preventDefault(); return; }
+    typed = false; a.blur(); post({ui: 'escape'});
+  }
 });
 $('back').addEventListener('click', () => post({ui: 'back'}));
 $('forward').addEventListener('click', () => post({ui: 'forward'}));
@@ -386,6 +466,8 @@ document.addEventListener('keydown', (e) => {
 window.chrome.webview.addEventListener('message', (e) => {
   const d = e.data;
   if (d.focus === 'address') focusAddress();
+  else if (d.suggest) gotSuggest(d.suggest);
+  else if (d.suggestDone) { typed = false; sug.items = []; sug.sel = -1; $('address').blur(); }
   else if (d.tabs) render(d);
 });
 window.addEventListener('resize', () => { if (state) render(state); });

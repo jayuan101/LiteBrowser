@@ -80,10 +80,12 @@ def capture(form):
 def screenshot(app, path: str) -> bool:
     """Lite's window, with the pop-up panel drawn where it is on screen - never another window."""
     bmp, ok = capture(app.form)
-    if app.popup.visible:
-        pop, ok2 = capture(app.popup.form)
+    for popup in (app.popup, getattr(app, 'suggest_popup', None)):  # the panel, and the address bar list
+        if popup is None or not popup.visible:
+            continue
+        pop, ok2 = capture(popup.form)
         g = Drawing.Graphics.FromImage(bmp)
-        g.DrawImage(pop, app.popup.form.Left - app.form.Left, app.popup.form.Top - app.form.Top)
+        g.DrawImage(pop, popup.form.Left - app.form.Left, popup.form.Top - app.form.Top)
         g.Dispose()
         pop.Dispose()
         ok = ok and ok2

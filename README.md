@@ -31,6 +31,14 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   from, such as the sign-in check Twitch runs from another domain - so you stay
   logged in where you want and everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
+- **Suggestions as you type**: the address bar completes sites you visit
+  (`twi` -> `twitch.tv`, Tab or Right arrow takes it) and lists your open tabs
+  ("Switch to tab"), bookmarks and history, ranked by how often and how
+  recently you went there, plus your search engine's suggestions. Up/Down to
+  pick, Shift+Delete forgets a history row, Ctrl+Enter wraps a word in
+  www...com. Only search phrases go to the engine: never addresses, file paths
+  or password-like text, never from private tabs, and a switch in Settings
+  turns it off.
 - **Lite Search**: pick "Lite" as the search engine in Settings and typing a
   search shows Lite's own results page - plain rows of title, address and
   snippet, fetched from a clean index in the background. No ads, no tracking

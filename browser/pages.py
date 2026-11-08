@@ -306,7 +306,7 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
                   bookmarks_bar: bool = True, update_note: str = '', performance: bool = False,
                   default_ok: bool = False, restore_tabs: bool = True, passwords: bool = True,
                   never_sites: int = 0, extensions: list[dict] | None = None, ext_note: str = '',
-                  ext_supported: bool = True, focus: str = '') -> str:
+                  ext_supported: bool = True, focus: str = '', suggestions: bool = True) -> str:
     """Everything Lite can be tuned for, with switches that take effect right away.
     focus: the id of a section to scroll to (the menu's Extensions item opens there)."""
     opts = ''.join(f"<option value={eid}{' selected' if eid == engine else ''}>{name}</option>"
@@ -340,6 +340,9 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 <div class=set><div class=txt><div>Search engine</div>
 <small>What the address bar and the new tab page use when you type a search.</small></div>
 <select class=min id=engine style="width:150px;text-align:left">{opts}</select></div>
+<div class=set><div class=txt><div>Show search suggestions as I type</div>
+<small>Lite asks your search engine what people search for. Off: only your tabs, bookmarks and history are suggested. Never in private tabs, and never for web addresses.</small></div>
+<button class="tog{' on' if suggestions else ''}" data-k=search_suggestions aria-label="toggle"></button></div>
 </section>
 
 <section><h2>Privacy</h2>

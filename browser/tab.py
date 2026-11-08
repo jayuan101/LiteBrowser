@@ -272,7 +272,8 @@ class Tab:
                                                extensions=self.app._extensions_data(),
                                                ext_note=self.app.ext_note,
                                                ext_supported=self.app.engine.extensions,
-                                               focus=focus))
+                                               focus=focus,
+                                               suggestions=s.get('search_suggestions', True)))
         self.app.refresh_chrome(self)
 
     def show_search_results(self, query: str, results: list[dict] | None):

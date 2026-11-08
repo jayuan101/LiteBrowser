@@ -17,7 +17,8 @@ import traceback
 from urllib.parse import urlparse
 
 from . import (
-    autofill, default_browser, extensions, filters, guard, importer, instance, privacy, search as search_mod, updater,
+    autofill, default_browser, extensions, filters, guard, importer, instance, privacy, search as search_mod, suggest,
+    updater,
 )
 from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner, fallback_path
@@ -35,7 +36,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.12'
+APP_VERSION = '0.2.13'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -226,6 +227,12 @@ class App:
 
         self.popup = Popup(f, self.engine, self._on_panel_message)
         f.Activated += lambda s, e: self.popup.hide()  # back in the browser window: close any panel
+        # Address bar suggestions: a list that never takes focus, so typing goes on in the toolbar.
+        self.suggest_popup = Popup(f, self.engine, self._on_suggest_panel, activate=False)
+        self._sg = {'seq': 0, 'text': '', 'rest': '', 'items': [], 'local': [], 'remote': [], 'cache': {}}
+        f.Deactivate += lambda s, e: self._suggest_close(soon=True)
+        f.Move += lambda s, e: self._suggest_close()
+        f.Resize += lambda s, e: self._suggest_close()
         self.ui_timer = WinForms.Timer()
         self.ui_timer.Interval = 50  # UI updates are batched: pages can block hundreds of requests a second
         self.ui_timer.Tick += lambda s, e: self._flush_ui()
@@ -314,6 +321,7 @@ class App:
         for t in self.tabs:
             t.dispose()
         self.popup.form.Dispose()
+        self.suggest_popup.form.Dispose()
 
     # ---- toolbar (chrome.html) -------------------------------------------
     def _on_ui_message(self, sender, args):
@@ -329,7 +337,16 @@ class App:
                 self.focus_address()
         elif tab is None:
             return
+        elif ui == 'suggest':
+            self._suggest(msg, tab)
+        elif ui == 'suggestsel':
+            self._suggest_select(msg)
+        elif ui == 'suggestpick':
+            self._suggest_pick(msg, tab)
+        elif ui == 'suggestdel':
+            self._suggest_forget(msg)
         elif ui == 'go':
+            self._suggest_close()
             tab.navigate(to_url(str(msg.get('text', '')), self.search_url()))
             tab.webview.Focus()
         elif ui == 'escape':
@@ -382,6 +399,109 @@ class App:
             self.show_key(self._anchor(msg.get('rect')))
         elif ui == 'navlist':
             self.show_nav_list('forward' if msg.get('dir') == 'forward' else 'back', self._anchor(msg.get('rect')))
+
+    # ---- address bar suggestions (suggest.py) -----------------------------
+    def _suggest(self, msg: dict, tab: Tab) -> None:
+        """The address bar text changed: local matches show now, the engine's a moment later."""
+        sg = self._sg
+        seq, text = int(msg.get('seq', 0)), str(msg.get('text', ''))[:300]
+        sg['seq'] = seq
+        if not text.strip():
+            self._suggest_close(soon=True)  # soon: the field closing may be a click on a row
+            return
+        sg['text'], sg['anchor'] = text, self._anchor(msg.get('rect'))
+        history, starred = self.history.recent(4000), self.bookmarks.items()
+        sg['rest'] = suggest.rest(text, suggest.inline(text, history, starred)) if msg.get('inline') else ''
+        results = tuple(u for _, u in SEARCH_ENGINES.values() if u.startswith('http')) + (search_mod.LITE_PREFIX,)
+        sg['local'] = suggest.local(text, self._suggest_tabs(tab), starred, history, skip=results)
+        engine = self.settings.get('search_engine', 'brave')
+        cached = sg['cache'].get((engine, text.strip().lower()))
+        sg['remote'] = cached or []
+        self._suggest_show()
+        if cached is None and suggest.may_send(text, tab.private, self.settings.get('search_suggestions', True)):
+            threading.Thread(target=self._suggest_fetch, args=(seq, text, engine), daemon=True).start()
+
+    def _suggest_tabs(self, current: Tab) -> list[dict]:
+        """Open tabs you could switch to: not this one, and private ones only from a private tab."""
+        return [{'id': t.id, 'url': t.sleep_url or t.url or t.pending_url or '', 'title': t.title}
+                for t in self.tabs if t is not current and t.private == current.private]
+
+    def _suggest_fetch(self, seq: int, text: str, engine: str) -> None:
+        time.sleep(suggest.DELAY)  # still typing: only the text you stopped at is sent
+        if self._sg['seq'] != seq:
+            return
+        found = suggest.remote(text, engine)
+
+        def apply():
+            cache = self._sg['cache']
+            cache[(engine, text.strip().lower())] = found
+            if len(cache) > 200:
+                cache.pop(next(iter(cache)))
+            if self._sg['seq'] == seq and found:
+                self._sg['remote'] = found
+                self._suggest_show()
+        self.later(apply)
+
+    def _suggest_show(self) -> None:
+        sg = self._sg
+        engine = SEARCH_ENGINES.get(self.settings.get('search_engine', 'brave'), SEARCH_ENGINES['brave'])[0]
+        sg['items'] = suggest.rows(sg['text'] + sg['rest'], sg['local'], sg['remote'], engine)
+        if not sg['items']:
+            self._suggest_close()
+            return
+        anchor = sg['anchor']
+        self.suggest_popup.show('suggest', {'items': sg['items'], 'sel': -1, 'typed': sg['text'],
+                                            'width': round(anchor.Width / self._scale()) - 10},
+                                anchor, align='left', width=anchor.Width)
+        if self._ui_ready:
+            self.chrome.CoreWebView2.PostWebMessageAsJson(json.dumps(
+                {'suggest': {'seq': sg['seq'], 'text': sg['text'], 'rest': sg['rest'], 'items': sg['items']}}))
+
+    def _suggest_select(self, msg: dict) -> None:
+        """Arrow keys in the address bar: highlight that row."""
+        if int(msg.get('seq', -1)) == self._sg['seq'] and self.suggest_popup.visible:
+            self.suggest_popup.update('suggest', dict(self.suggest_popup.data or {}, sel=int(msg.get('sel', -1))))
+
+    def _suggest_close(self, soon: bool = False) -> None:
+        """Close the list. soon=True waits a moment, in case a click on a row is what closed the field."""
+        if not soon:
+            self.suggest_popup.hide()
+            return
+        seq = self._sg['seq']
+
+        def wait():
+            time.sleep(0.3)
+            self.later(lambda: self._sg['seq'] == seq and self.suggest_popup.hide())
+        threading.Thread(target=wait, daemon=True).start()
+
+    def _suggest_pick(self, msg: dict, tab: Tab) -> None:
+        items, i = self._sg['items'], int(msg.get('i', -1))
+        if not 0 <= i < len(items):
+            return
+        self._sg['seq'] += 1  # a late answer from the engine does not reopen the list
+        self.suggest_popup.hide()
+        it = items[i]
+        if it['kind'] == 'tab':
+            target = self._tab(it.get('id'))
+            if target:
+                self.select(target)
+                return
+        url = it['url'] if it['kind'] in ('tab', 'history', 'bookmark') else to_url(it['text'], self.search_url())
+        tab.navigate(url)
+        tab.webview.Focus()
+
+    def _on_suggest_panel(self, msg: dict) -> None:
+        """A click on a row of the list."""
+        if msg.get('panel') == 'suggest' and self.current:
+            self._suggest_pick({'i': msg.get('i')}, self.current)
+            if self._ui_ready:
+                self.chrome.CoreWebView2.PostWebMessageAsJson('{"suggestDone": true}')
+
+    def _suggest_forget(self, msg: dict) -> None:
+        """Shift+Delete on a history row: that page leaves history."""
+        items, i = self._sg['items'], int(msg.get('i', -1))
+        if 0 <= i < len(items) and items[i]['kind'] == 'history':
+            self.history.delete(items[i]['url'])
 
     def _anchor(self, rect: dict | None = None):
         """Screen rectangle (device pixels) of a toolbar button, from its CSS-pixel rect in chrome.html."""
@@ -1213,6 +1333,8 @@ class App:
             for t in list(self.tabs):
                 t.set_login_script(bool(value))
             self.refresh_chrome()
+        elif key == 'search_suggestions':
+            self.settings.set(key, bool(value))
         elif key == 'password_never' and not value:  # the page can only clear the list, never fill it
             self.settings.set(key, [])
             self._refresh_settings_pages()

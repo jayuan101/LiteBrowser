@@ -124,8 +124,14 @@ class History(_Store):
         url = _no_fragment(url)
         if not url.startswith(('http://', 'https://')):
             return
+        visits = 0
+        for e in self.data:
+            if e.get('url') == url:
+                visits = int(e.get('visits', 1) or 1)
+                break
         self.data = [e for e in self.data if e.get('url') != url]
-        self.data.insert(0, {'url': url, 'title': title or url, 'ts': time.time()})
+        # visits: how often, for address bar suggestions (entries from before 0.2.13 count as one)
+        self.data.insert(0, {'url': url, 'title': title or url, 'ts': time.time(), 'visits': visits + 1})
         del self.data[self.LIMIT:]
         self._dirty = True
 
