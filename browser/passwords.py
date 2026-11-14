@@ -165,6 +165,11 @@ class Passwords:
     def count(self) -> int:
         return len(self.rows)
 
+    def hosts(self) -> set[str]:
+        """Sites with a saved login - kept signed in through the cookie auto-delete sweep,
+        the same as a starred site, since saving a password means you want to stay signed in."""
+        return {s[1] for s in (_site(r['url']) for r in self.rows) if s}
+
     def add(self, url: str, user: str, pw: str) -> bool:
         """One login row; the password is encrypted the moment it arrives. False if already saved."""
         url, user = url.strip(), user.strip()

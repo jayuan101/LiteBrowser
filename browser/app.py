@@ -36,7 +36,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.13'
+APP_VERSION = '0.2.14'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -1591,10 +1591,13 @@ del "%~f0"\r''')
         threading.Thread(target=worker, daemon=True).start()
 
     def _delete_cookies(self, cookies, open_hosts: set[str], everything: bool = False):
+        # A saved login is as much a sign you want to stay signed in as a star: without this, Lite
+        # would offer to save a password for a site, then sign you out of it 30 seconds later.
+        trusted = self.bookmarks.hosts() | self.passwords.hosts()
         try:
             for c in cookies:
                 uri = f'https://{str(c.Domain).lstrip(".").lower()}{c.Path}'
-                if not everything and host_keeps_cookie(str(c.Domain), self.bookmarks.hosts(), open_hosts):
+                if not everything and host_keeps_cookie(str(c.Domain), trusted, open_hosts):
                     continue
                 self.chrome.CoreWebView2.CookieManager.DeleteCookies(str(c.Name), uri)
         except Exception:

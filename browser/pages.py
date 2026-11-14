@@ -347,7 +347,7 @@ def settings_html(cookies: bool, tab_sleep: bool, sleep_minutes: int, update_che
 
 <section><h2>Privacy</h2>
 <div class=set><div class=txt><div>Delete cookies of sites I have not starred</div>
-<small>Every 30 seconds, and when Lite closes. Star a site (Ctrl+D) or keep it open to stay signed in.</small></div>
+<small>Every 30 seconds, and when Lite closes. Star a site (Ctrl+D), save a password on it, or keep it open to stay signed in.</small></div>
 <button class="tog{' on' if cookies else ''}" data-k=auto_delete_cookies aria-label="toggle"></button></div>
 <div class=set><div class=txt><div>Delete all cookies now</div>
 <small>Every site is signed out, including starred ones.</small></div>

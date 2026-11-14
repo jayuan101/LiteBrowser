@@ -26,10 +26,10 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   is not currently supported"); signed in, Twitch knows who you are anyway.
 - **Private tabs** (Ctrl+Shift+N) keep nothing once closed.
 - **Auto cookie deletion.** Every 30 seconds Lite deletes the cookies of sites
-  you have not starred and that are not open in a tab. Sites you star (Ctrl+D)
-  or have open keep their cookies - and so do the sites an open page loads
-  from, such as the sign-in check Twitch runs from another domain - so you stay
-  logged in where you want and everything else forgets you.
+  you have not starred and that are not open in a tab. Sites you star (Ctrl+D),
+  save a password on or have open keep their cookies - and so do the sites an
+  open page loads from, such as the sign-in check Twitch runs from another
+  domain - so you stay logged in where you want and everything else forgets you.
 - **Find in page** (Ctrl+F): highlight-and-scroll search bar on any page.
 - **Suggestions as you type**: the address bar completes sites you visit
   (`twi` -> `twitch.tv`, Tab or Right arrow takes it) and lists your open tabs
