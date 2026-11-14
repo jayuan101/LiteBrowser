@@ -61,11 +61,6 @@ def _origin(url: str) -> str:
     return f'{p.scheme}://{p.netloc}'
 
 
-def _trim_user_agent(ua: str) -> str:
-    # Drop the "Edg/..." token so sites see a plain Chromium browser, like Brave does.
-    return ' '.join(t for t in ua.split() if not t.startswith('Edg/'))
-
-
 def _stub_response(env, data_url: str):
     """Answer a blocked request with a harmless stand-in (an empty script, a 1x1 gif...)."""
     head, _, payload = data_url.partition(',')
@@ -153,7 +148,10 @@ class Tab:
         s.IsStatusBarEnabled = True
         s.IsPasswordAutosaveEnabled = False
         s.IsGeneralAutofillEnabled = False
-        s.UserAgent = _trim_user_agent(s.UserAgent)
+        # The engine's own user agent is left as it is. Lite can trim the "Edg/" token from the
+        # string but not from the client hints (Sec-CH-UA, navigator.userAgentData), which still
+        # name Microsoft Edge - and a browser that names itself two ways is what sign-in bot
+        # checks such as Twitch's refuse ("This username does not exist" with the right name).
         if self.app.settings.get('performance_mode', False):
             core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low
 
