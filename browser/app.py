@@ -24,6 +24,7 @@ from .blocker import Blocker
 from .downloads import Scanner as AntivirusScanner, fallback_path
 from .engine import Engine
 from .passwords import Passwords
+from .pai_panel import PaiPanel
 from .popup import Popup
 from .scanner import FableScanner
 from .stats import Stats
@@ -36,7 +37,7 @@ from .webview2 import (
 )
 
 APP_NAME = 'Lite'
-APP_VERSION = '0.2.15'
+APP_VERSION = '0.2.16'
 
 SEARCH_ENGINES = {  # id -> (name, query URL); Brave is the default, the rest are one click away in Settings
     'brave': ('Brave', 'https://search.brave.com/search?q='),
@@ -224,6 +225,7 @@ class App:
         self._size_chrome()
         f.DpiChanged += lambda s, e: self._size_chrome()
         self.engine.attach(self.chrome)
+        self.pai = PaiPanel(self)  # PAI, the assistant on this PC, in a side panel (pai.py)
 
         self.popup = Popup(f, self.engine, self._on_panel_message)
         f.Activated += lambda s, e: self.popup.hide()  # back in the browser window: close any panel
@@ -335,6 +337,9 @@ class App:
             self.refresh_chrome(tab)
             if tab and tab.builtin and not tab.url and not tab.pending_url:
                 self.focus_address()
+        elif ui == 'pai':
+            self.pai.toggle()
+            self.refresh_chrome()
         elif tab is None:
             return
         elif ui == 'suggest':
@@ -540,6 +545,7 @@ class App:
             'engine': SEARCH_ENGINES.get(self.settings.get('search_engine', 'brave'), SEARCH_ENGINES['brave'])[0],
             'reader': bool(tab and (on_site or tab.reader_source)),
             'reading': bool(tab and tab.reader_source),
+            'pai': self.pai.shown,
             'shields': {'show': on_site, 'up': on_site and self.blocker.shields_up(tab.host),
                         'count': tab.blocked if tab else 0},
             'scan': self._scan_info(tab) if on_site else {'show': False},
@@ -559,6 +565,7 @@ class App:
             self.form.Text = f'{tab.title} - {APP_NAME}' if tab and tab.title else APP_NAME
             if self._ui_ready:
                 self.chrome.CoreWebView2.PostWebMessageAsJson(json.dumps(self._ui_state()))
+            self.pai.refresh_page()
         if self._panel_dirty and self.popup.visible and time.time() >= self._panel_due:
             self._panel_dirty = False
             self._panel_due = time.time() + 0.4  # live counters, without re-rendering on every request
