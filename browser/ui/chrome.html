@@ -161,6 +161,7 @@ body.private #private-badge { display: flex; }
   <div class="btn" id="key" title="Saved passwords for this site"><svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4"/><path d="M11 12l9-9M17 6l3 3"/></svg></div>
   <div class="btn" id="star" title="Bookmark this page (Ctrl+D)"><svg viewBox="0 0 24 24" id="star-icon"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.8z"/></svg></div>
   <div class="btn" id="downloads" title="Downloads (Ctrl+J)"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="dot"></span></div>
+  <div class="btn" id="pai" title="PAI, your assistant (Ctrl+Shift+A)"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="4"/><path d="M12 4.5V8M9.5 13h.01M14.5 13h.01M9.5 16.2h5"/><circle cx="12" cy="3.6" r="1"/></svg></div>
   <div class="btn" id="menu" title="Menu"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg></div>
 </div>
 <div id="favbar"></div>
@@ -430,6 +431,7 @@ $('scan').addEventListener('click', () => post({ui: 'shields', rect: rectOf('shi
 $('menu').addEventListener('click', () => post({ui: 'menu', rect: rectOf('menu')}));
 $('downloads').addEventListener('click', () => post({ui: 'downloads', rect: rectOf('downloads')}));
 $('reader').addEventListener('click', () => post({ui: 'reader'}));
+$('pai').addEventListener('click', () => post({ui: 'pai'}));
 $('star').addEventListener('click', () => post({ui: 'star'}));
 $('field').addEventListener('mousedown', (e) => { if (e.target === $('field') || e.target === $('site')) { e.preventDefault(); focusAddress(); } });
 
@@ -453,6 +455,7 @@ document.addEventListener('keydown', (e) => {
     else if (k === '-') msg = {ui: 'zoom', step: -1};
     else if (k === '0') msg = {ui: 'zoom', step: 0};
     else if (k === 'p' && e.shiftKey) msg = {ui: 'pin'};
+    else if (k === 'a' && e.shiftKey) msg = {ui: 'pai'};
     else if (k === 'l') { focusAddress(); e.preventDefault(); return; }
   } else if (e.altKey && !e.ctrlKey) {
     if (k === 'arrowleft') msg = {ui: 'back'};
@@ -468,7 +471,7 @@ window.chrome.webview.addEventListener('message', (e) => {
   if (d.focus === 'address') focusAddress();
   else if (d.suggest) gotSuggest(d.suggest);
   else if (d.suggestDone) { typed = false; sug.items = []; sug.sel = -1; $('address').blur(); }
-  else if (d.tabs) render(d);
+  else if (d.tabs) { render(d); $('pai').classList.toggle('on', !!d.pai); }
 });
 window.addEventListener('resize', () => { if (state) render(state); });
 // Leaving the toolbar (e.g. Lite moves focus to the page) really leaves it: otherwise the next click

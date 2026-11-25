@@ -847,6 +847,9 @@ class Tab:
             app.zoom(0)
         elif ctrl and shift and key == ord('P'):
             app.toggle_pin(self)
+        elif ctrl and shift and key == ord('A'):
+            app.pai.toggle()
+            app.refresh_chrome()
         elif ctrl and key == int(Keys.Tab):
             app.cycle_tab(-1 if shift else 1)
         elif ctrl and ord('1') <= key <= ord('9'):

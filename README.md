@@ -88,6 +88,14 @@ Chromium engine already installed with Windows) with Brave-style Shields.
   WebView2 draws no toolbar buttons for extensions, so an extension's pop-up
   and options page open as a tab (Open / Options in Settings). An unpacked
   extension folder can be added too ("From a folder...").
+- **PAI, built in** (the robot button, or Ctrl+Shift+A): a side panel that chats with PAI, the
+  personal assistant running on this PC (http://127.0.0.1:8010). "Summarize this page" and
+  "Ask about this page" send the page's title, address, selected text and readable text with
+  your question, marked as untrusted web content so instructions on a page are never taken as
+  yours. Private tabs and Lite's own pages never share their page. Lite reads PAI's key from
+  PAI's own folder (API_AUTH_TOKEN in `.env`, or `datapi_token.json`) and stores no copy; the
+  chats are saved in PAI's history like any other. PAI's address can be changed with the
+  `pai_url` setting.
 - **Reader mode** (the book button or View menu): an article page re-rendered
   as clean text with no layout, fonts or scripts from the site.
 - **Make Lite the default browser** (Settings > System): registers Lite's
@@ -165,6 +173,7 @@ and writes `dist\Lite\Lite.exe` plus `dist\Lite-windows-x64.zip`.
 | `browser/instance.py` | One Lite per profile: later starts hand their links over |
 | `browser/engine.py` | The one WebView2 environment every WebView joins, with extensions switched on |
 | `browser/extensions.py` | Chrome Web Store extensions: download, signature check, unpack, updates |
+| `browser/pai.py`, `browser/pai_panel.py` | PAI in a side panel: talking to PAI's API, and the panel (`ui/pai.html`) |
 | `browser/updater.py` | GitHub release update check |
 | `browser/pages.py` | Built-in new tab, reader, find bar, library and warning pages |
 | `browser/ui/` | Toolbar and panel HTML |
